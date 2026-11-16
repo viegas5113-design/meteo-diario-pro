@@ -1,0 +1,25 @@
+{
+  "name": "Meteo Diário Pro",
+  "short_name": "Meteo Diário",
+  "description": "Meteorologia, estado do mar e registo diário de observações no terreno para telemóvel.",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b1524",
+  "theme_color": "#0284c7",
+  "lang": "pt-PT",
+  "icons": [
+    {
+      "src": "static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

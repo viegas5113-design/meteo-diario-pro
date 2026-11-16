@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1524">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Meteo Diário Pro</title>
+
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="static/icons/icon-192.png">
+  <link rel="icon" type="image/png" href="static/icons/icon-192.png">
+  <link rel="stylesheet" href="static/css/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- CABEÇALHO -->
+    <header class="top-header">
+      <div class="brand">
+        <img src="static/icons/icon-192.png" alt="Meteo Diário Pro">
+        <div class="brand-txt">
+          <strong>Meteo Diário Pro</strong>
+          <span id="statusLine">A carregar dados...</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="btnInstallApp" class="install-btn" title="Instalar no Ecrã Principal">📲 Instalar</button>
+        <button id="btnRefresh" class="icon-btn" title="Atualizar Meteorologia">🔄</button>
+        <button id="btnTheme" class="icon-btn" title="Modo Dia / Noite">🌙</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- SEPARADOR 1: TEMPO & MAR -->
+      <section id="tabTempo" class="tab-pane active">
+        <div class="loc-bar">
+          <div class="loc-info">
+            <span id="locTitle" class="loc-name">📍 Lagos (Padrão)</span>
+            <span id="locCoords" class="loc-sub">37.1028° N, -8.6730° O</span>
+          </div>
+          <div class="loc-btns">
+            <button id="btnUseGps" class="pill-btn">📡 GPS Atual</button>
+            <button id="btnUseLagos" class="pill-btn active">⚓ Lagos</button>
+          </div>
+        </div>
+
+        <div class="hero-card">
+          <div class="hero-left">
+            <div id="wIcon" class="hero-icon">🌤️</div>
+            <div>
+              <div id="wTemp" class="hero-temp">--°C</div>
+              <div id="wDesc" class="hero-desc">A obter previsão...</div>
+            </div>
+          </div>
+          <div class="hero-right">
+            <span id="moonIcon" style="font-size:28px;display:block;">🌕</span>
+            <strong id="moonName">--</strong>
+            <span id="moonIllum">--% luz</span>
+          </div>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-lbl">💨 Vento & Rajadas</span>
+            <span id="mWindKmh" class="metric-val">-- km/h</span>
+            <span id="mWindKnots" class="metric-sub">-- nós · Raj: --</span>
+          </div>
+
+          <div class="metric-card">
+            <span class="metric-lbl">🧭 Direção do Vento</span>
+            <span id="mWindDir" class="metric-val">--</span>
+            <span id="mWindDeg" class="metric-sub">---°</span>
+          </div>
+
+          <div class="metric-card">
+            <span class="metric-lbl">🌡️ Pressão Atmosférica</span>
+            <span id="mPressure" class="metric-val">---- hPa</span>
+            <span id="mPressureTrend" class="metric-sub">➡️ Estável</span>
+          </div>
+
+          <div class="metric-card">
+            <span class="metric-lbl">💧 Humidade do Ar</span>
+            <span id="mHumidity" class="metric-val">--%</span>
+            <span id="mUpdatedAt" class="metric-sub">Atualizado: --:--</span>
+          </div>
+
+          <div class="metric-card">
+            <span class="metric-lbl">🌊 Ondulação & Período</span>
+            <span id="mWaveHeight" class="metric-val">-- m</span>
+            <span id="mWavePeriod" class="metric-sub">Período: -- s</span>
+          </div>
+
+          <div class="metric-card">
+            <span class="metric-lbl">🌡️ Água do Mar</span>
+            <span id="mSeaTemp" class="metric-val">--°C</span>
+            <span id="mWaveDir" class="metric-sub">Dir. onda: --</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- SEPARADOR 2: REGISTO DO DIA -->
+      <section id="tabRegisto" class="tab-pane">
+        <div class="section-card">
+          <span class="field-label">🌊 Estado do Mar (Observação Real)</span>
+          <div id="grpSeaState" class="chip-group">
+            <button type="button" class="chip-opt selected" data-val="Calmo">Calmo</button>
+            <button type="button" class="chip-opt" data-val="Pouco agitado">Pouco agitado</button>
+            <button type="button" class="chip-opt" data-val="Ondulação moderada">Ondulação moderada</button>
+            <button type="button" class="chip-opt" data-val="Agitado">Agitado</button>
+            <button type="button" class="chip-opt" data-val="Muito agitado">Muito agitado</button>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <span class="field-label">💨 Sensação do Vento</span>
+          <div id="grpWindFeel" class="chip-group">
+            <button type="button" class="chip-opt selected" data-val="Fraco">Fraco</button>
+            <button type="button" class="chip-opt" data-val="Moderado">Moderado</button>
+            <button type="button" class="chip-opt" data-val="Forte">Forte</button>
+            <button type="button" class="chip-opt" data-val="Muito forte / Rajadas">Muito forte</button>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <span class="field-label">👁️ Visibilidade</span>
+          <div id="grpVisibility" class="chip-group">
+            <button type="button" class="chip-opt selected" data-val="Boa">Boa</button>
+            <button type="button" class="chip-opt" data-val="Moderada">Moderada</button>
+            <button type="button" class="chip-opt" data-val="Nevoeiro / Reduzida">Nevoeiro / Reduzida</button>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <span class="field-label">📝 Notas Livres</span>
+          <textarea id="regNotes" rows="3" placeholder="Ex: Maré a encher, água limpa, vento a rodar para Norte..."></textarea>
+
+          <span class="field-label" style="margin-top:4px;">📷 Foto Opcional (Câmara / Galeria)</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label class="btn btn-accent" style="flex:1;cursor:pointer;">
+              📷 Tirar / Escolher Foto
+              <input id="regPhotoInput" type="file" accept="image/*" capture="environment" style="display:none;">
+            </label>
+            <button id="btnClearPhoto" type="button" class="btn btn-danger" style="display:none;">✕ Remover</button>
+          </div>
+          <img id="regPhotoPreview" class="photo-preview" alt="Pré-visualização da foto">
+        </div>
+
+        <div class="section-card">
+          <div id="regSnapshotSummary" class="loc-sub">
+            Serão guardados automaticamente a data, hora, GPS e os dados meteorológicos atuais.
+          </div>
+          <button id="btnSaveEntry" type="button" class="btn btn-primary">💾 Guardar Registo do Dia</button>
+        </div>
+      </section>
+
+      <!-- SEPARADOR 3: HISTÓRICO & BACKUP -->
+      <section id="tabHistorico" class="tab-pane">
+        <div class="section-card">
+          <input id="searchHistory" class="input-ctrl" type="search" placeholder="🔍 Pesquisar por notas, mar, vento, local ou data...">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button id="btnExportJson" class="btn btn-accent btn-sm" style="flex:1;">📤 Backup JSON</button>
+            <button id="btnExportCsv" class="btn btn-sm" style="flex:1;">📊 Exportar CSV</button>
+            <label class="btn btn-sm" style="flex:1;cursor:pointer;">
+              📥 Importar JSON
+              <input id="importJsonInput" type="file" accept=".json,application/json" style="display:none;">
+            </label>
+          </div>
+          <div id="historyCount" class="loc-sub">0 registos guardados</div>
+        </div>
+
+        <div id="historyList" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </section>
+    </main>
+
+    <!-- NAVEGAÇÃO INFERIOR -->
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-tab="tabTempo">
+        <span class="ico">🌤️</span>
+        <span>Tempo & Mar</span>
+      </button>
+      <button class="nav-btn" data-tab="tabRegisto">
+        <span class="ico">📝</span>
+        <span>Registo do Dia</span>
+      </button>
+      <button class="nav-btn" data-tab="tabHistorico">
+        <span class="ico">📚</span>
+        <span>Histórico</span>
+      </button>
+    </nav>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="static/js/meteo_utils.js"></script>
+  <script src="static/js/db.js"></script>
+  <script src="static/js/app.js"></script>
+</body>
+</html>
