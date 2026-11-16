@@ -7,6 +7,10 @@
   const GRID_LATS = [35.8, 36.3, 36.8, 37.3, 37.8];
   const GRID_LONS = [-10.0, -9.4, -8.8, -8.2, -7.6, -7.0];
 
+  // Grelha alargada Atlântico + Península Ibérica para isóbaras contínuas (30°N–46°N, 20°O–2°E)
+  const PRESS_LATS = [30, 32, 34, 36, 38, 40, 42, 44, 46];
+  const PRESS_LONS = [-20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2];
+
   let map = null;
   let initialized = false;
   let userMarker = null;
@@ -181,59 +185,58 @@
     if (btn) btn.textContent = '▶';
   }
 
-  // --- Grelha Open-Meteo (Vento + Isóbaras) ---
+  // --- Grelhas Open-Meteo (Vento Algarve + Isóbaras Atlântico/Ibéria) ---
+  function buildGridCoords(latArr, lonArr) {
+    const lats = [];
+    const lons = [];
+    for (let r = 0; r < latArr.length; r++) {
+      for (let c = 0; c < lonArr.length; c++) {
+        lats.push(latArr[r]);
+        lons.push(lonArr[c]);
+      }
+    }
+    return { lats, lons };
+  }
+
   async function loadWeatherGrid() {
     const statusEl = document.getElementById('cartaGridStatus');
     statusEl.textContent = 'A carregar vento e isóbaras...';
 
-    const lats = [];
-    const lons = [];
-    for (let r = 0; r < GRID_LATS.length; r++) {
-      for (let c = 0; c < GRID_LONS.length; c++) {
-        lats.push(GRID_LATS[r]);
-        lons.push(GRID_LONS[c]);
-      }
-    }
+    const wCoords = buildGridCoords(GRID_LATS, GRID_LONS);
+    const pCoords = buildGridCoords(PRESS_LATS, PRESS_LONS);
 
-    const url =
-      `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}` +
-      `&current=wind_speed_10m,wind_direction_10m,pressure_msl&timezone=auto`;
+    const windUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${wCoords.lats.join(',')}&longitude=${wCoords.lons.join(',')}` +
+      `&current=wind_speed_10m,wind_direction_10m&timezone=auto`;
+
+    const pressUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${pCoords.lats.join(',')}&longitude=${pCoords.lons.join(',')}` +
+      `&current=pressure_msl&timezone=auto`;
 
     try {
-      const res = await fetch(url);
-      const data = await res.json();
-      const arr = Array.isArray(data) ? data : [data];
-
-      const rows = GRID_LATS.length;
-      const cols = GRID_LONS.length;
-      const pressureGrid = Array.from({ length: rows }, () => Array(cols).fill(null));
+      const [wRes, pRes] = await Promise.all([fetch(windUrl), fetch(pressUrl)]);
+      const wData = await wRes.json();
+      const pData = await pRes.json();
+      const wArr = Array.isArray(wData) ? wData : [wData];
+      const pArr = Array.isArray(pData) ? pData : [pData];
 
       windLayerGroup.clearLayers();
       isobarLayerGroup.clearLayers();
 
-      let minP = Infinity, maxP = -Infinity;
-      let minPt = null, maxPt = null;
-
-      arr.forEach((item, idx) => {
-        const r = Math.floor(idx / cols);
-        const c = idx % cols;
+      // 1. Vento (Costa Algarvia)
+      const wCols = GRID_LONS.length;
+      wArr.forEach((item, idx) => {
+        const r = Math.floor(idx / wCols);
+        const c = idx % wCols;
         const lat = GRID_LATS[r];
         const lon = GRID_LONS[c];
         const cur = item.current || {};
         const spd = cur.wind_speed_10m;
         const dir = cur.wind_direction_10m;
-        const p = cur.pressure_msl;
-
-        if (p != null) {
-          pressureGrid[r][c] = p;
-          if (p < minP) { minP = p; minPt = { lat, lon, p }; }
-          if (p > maxP) { maxP = p; maxPt = { lat, lon, p }; }
-        }
 
         if (spd != null && dir != null) {
           const col = windColor(spd);
           const kts = (spd * 0.539957).toFixed(0);
-          // Círculo de intensidade
           L.circle([lat, lon], {
             radius: 19000,
             color: col,
@@ -242,7 +245,6 @@
             weight: 0
           }).addTo(windLayerGroup);
 
-          // Seta direcional (vento sopra PARA dir + 180)
           const rot = (dir + 180) % 360;
           const icon = L.divIcon({
             className: 'wind-arrow-icon',
@@ -261,11 +263,30 @@
         }
       });
 
-      // Desenhar Isóbaras (Marching Squares a cada 2 hPa)
+      // 2. Isóbaras (Atlântico + Península Ibérica, intervalo 1 hPa)
+      const pRows = PRESS_LATS.length;
+      const pCols = PRESS_LONS.length;
+      const pressureGrid = Array.from({ length: pRows }, () => Array(pCols).fill(null));
+      let minP = Infinity, maxP = -Infinity;
+      let minPt = null, maxPt = null;
+
+      pArr.forEach((item, idx) => {
+        const r = Math.floor(idx / pCols);
+        const c = idx % pCols;
+        const lat = PRESS_LATS[r];
+        const lon = PRESS_LONS[c];
+        const p = item.current && item.current.pressure_msl;
+        if (p != null) {
+          pressureGrid[r][c] = p;
+          if (p < minP) { minP = p; minPt = { lat, lon, p }; }
+          if (p > maxP) { maxP = p; maxPt = { lat, lon, p }; }
+        }
+      });
+
       if (isFinite(minP) && isFinite(maxP)) {
-        const startLevel = Math.floor(minP / 2) * 2;
-        const endLevel = Math.ceil(maxP / 2) * 2;
-        for (let level = startLevel; level <= endLevel; level += 2) {
+        const startLevel = Math.floor(minP);
+        const endLevel = Math.ceil(maxP);
+        for (let level = startLevel; level <= endLevel; level += 1) {
           drawIsobarLevel(pressureGrid, level);
         }
         if (maxPt) {
@@ -290,19 +311,89 @@
         }
       }
 
-      statusEl.textContent = `Grelha atualizada (${Math.round(minP)}–${Math.round(maxP)} hPa)`;
+      statusEl.textContent = `Grelha atualizada (${Math.round(minP)}–${Math.round(maxP)} hPa · 1 hPa)`;
     } catch (_) {
       statusEl.textContent = 'Erro ao carregar grelha (offline?)';
     }
   }
 
   /**
-   * Marching Squares simples numa grelha regular para extrair segmentos de isóbara.
+   * Suavização Chaikin para tornar as isóbaras curvas suaves e contínuas.
+   */
+  function smoothPolyline(pts, iterations = 2) {
+    let cur = pts;
+    for (let it = 0; it < iterations; it++) {
+      if (cur.length < 3) break;
+      const next = [cur[0]];
+      for (let i = 0; i < cur.length - 1; i++) {
+        const p0 = cur[i];
+        const p1 = cur[i + 1];
+        next.push([0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1]]);
+        next.push([0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1]]);
+      }
+      next.push(cur[cur.length - 1]);
+      cur = next;
+    }
+    return cur;
+  }
+
+  /**
+   * Encadeia segmentos soltos de Marching Squares em polilinhas contínuas.
+   */
+  function chainSegments(segments) {
+    const key = (pt) => `${pt[0].toFixed(4)},${pt[1].toFixed(4)}`;
+    const unused = segments.map((s) => ({ a: s[0], b: s[1], used: false }));
+    const chains = [];
+
+    for (let i = 0; i < unused.length; i++) {
+      if (unused[i].used) continue;
+      unused[i].used = true;
+      const line = [unused[i].a, unused[i].b];
+
+      let extended = true;
+      while (extended) {
+        extended = false;
+        const tailKey = key(line[line.length - 1]);
+        const headKey = key(line[0]);
+        for (let j = 0; j < unused.length; j++) {
+          if (unused[j].used) continue;
+          const ak = key(unused[j].a);
+          const bk = key(unused[j].b);
+          if (ak === tailKey) {
+            line.push(unused[j].b);
+            unused[j].used = true;
+            extended = true;
+            break;
+          } else if (bk === tailKey) {
+            line.push(unused[j].a);
+            unused[j].used = true;
+            extended = true;
+            break;
+          } else if (bk === headKey) {
+            line.unshift(unused[j].a);
+            unused[j].used = true;
+            extended = true;
+            break;
+          } else if (ak === headKey) {
+            line.unshift(unused[j].b);
+            unused[j].used = true;
+            extended = true;
+            break;
+          }
+        }
+      }
+      chains.push(line);
+    }
+    return chains;
+  }
+
+  /**
+   * Marching Squares na grelha alargada (1 em 1 hPa) com encadeamento, suavização e rótulos repetidos.
    */
   function drawIsobarLevel(grid, level) {
-    const rows = GRID_LATS.length;
-    const cols = GRID_LONS.length;
-    let labelPlaced = false;
+    const rows = PRESS_LATS.length;
+    const cols = PRESS_LONS.length;
+    const rawSegments = [];
 
     function interp(v1, v2, p1, p2) {
       if (Math.abs(v2 - v1) < 1e-6) return (p1 + p2) / 2;
@@ -325,49 +416,51 @@
         const mask = b0 | b1 | b2 | b3;
         if (mask === 0 || mask === 15) continue;
 
-        const lat0 = GRID_LATS[r], lat1 = GRID_LATS[r + 1];
-        const lon0 = GRID_LONS[c], lon1 = GRID_LONS[c + 1];
+        const lat0 = PRESS_LATS[r], lat1 = PRESS_LATS[r + 1];
+        const lon0 = PRESS_LONS[c], lon1 = PRESS_LONS[c + 1];
 
         const top = [lat0, interp(v0, v1, lon0, lon1)];
         const right = [interp(v1, v2, lat0, lat1), lon1];
         const bottom = [lat1, interp(v3, v2, lon0, lon1)];
         const left = [interp(v0, v3, lat0, lat1), lon0];
 
-        const edges = [];
-        if (mask === 1 || mask === 14) edges.push([left, top]);
-        else if (mask === 2 || mask === 13) edges.push([top, right]);
-        else if (mask === 4 || mask === 11) edges.push([right, bottom]);
-        else if (mask === 8 || mask === 7) edges.push([bottom, left]);
-        else if (mask === 3 || mask === 12) edges.push([left, right]);
-        else if (mask === 6 || mask === 9) edges.push([top, bottom]);
-        else if (mask === 5) { edges.push([left, top]); edges.push([right, bottom]); }
-        else if (mask === 10) { edges.push([top, right]); edges.push([bottom, left]); }
-
-        edges.forEach((seg) => {
-          L.polyline(seg, {
-            color: '#f8fafc',
-            weight: 2,
-            opacity: 0.85,
-            dashArray: level % 4 === 0 ? null : '4,4'
-          }).addTo(isobarLayerGroup);
-
-          if (!labelPlaced) {
-            labelPlaced = true;
-            const midLat = (seg[0][0] + seg[1][0]) / 2;
-            const midLon = (seg[0][1] + seg[1][1]) / 2;
-            L.marker([midLat, midLon], {
-              interactive: false,
-              icon: L.divIcon({
-                className: 'isobar-lbl',
-                iconSize: [52, 18],
-                iconAnchor: [26, 9],
-                html: `<div style="background:rgba(15,23,42,0.82);color:#e2e8f0;border:1px solid rgba(255,255,255,0.35);border-radius:6px;font-size:10px;font-weight:800;text-align:center;line-height:16px;">${level} hPa</div>`
-              })
-            }).addTo(isobarLayerGroup);
-          }
-        });
+        if (mask === 1 || mask === 14) rawSegments.push([left, top]);
+        else if (mask === 2 || mask === 13) rawSegments.push([top, right]);
+        else if (mask === 4 || mask === 11) rawSegments.push([right, bottom]);
+        else if (mask === 8 || mask === 7) rawSegments.push([bottom, left]);
+        else if (mask === 3 || mask === 12) rawSegments.push([left, right]);
+        else if (mask === 6 || mask === 9) rawSegments.push([top, bottom]);
+        else if (mask === 5) { rawSegments.push([left, top]); rawSegments.push([right, bottom]); }
+        else if (mask === 10) { rawSegments.push([top, right]); rawSegments.push([bottom, left]); }
       }
     }
+
+    const chains = chainSegments(rawSegments);
+    const isMajor = level % 4 === 0;
+
+    chains.forEach((chain) => {
+      const smooth = smoothPolyline(chain, 2);
+      L.polyline(smooth, {
+        color: isMajor ? '#fef08a' : '#f8fafc',
+        weight: isMajor ? 2.8 : 2.1,
+        opacity: isMajor ? 0.95 : 0.82
+      }).addTo(isobarLayerGroup);
+
+      // Rótulos numéricos repetidos ao longo da linha (a cada ~6 vértices após suavização)
+      const step = Math.max(5, Math.floor(smooth.length / 4));
+      for (let i = Math.floor(step / 2); i < smooth.length; i += step) {
+        const pt = smooth[i];
+        L.marker(pt, {
+          interactive: false,
+          icon: L.divIcon({
+            className: 'isobar-lbl',
+            iconSize: [56, 18],
+            iconAnchor: [28, 9],
+            html: `<div style="background:rgba(15,23,42,0.88);color:${isMajor ? '#fef08a' : '#f8fafc'};border:1px solid ${isMajor ? '#fde047' : 'rgba(255,255,255,0.45)'};border-radius:6px;font-size:10px;font-weight:800;text-align:center;line-height:16px;">${level} hPa</div>`
+          })
+        }).addTo(isobarLayerGroup);
+      }
+    });
   }
 
   global.CartaRadar = { initMap };
