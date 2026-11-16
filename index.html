@@ -12,6 +12,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="static/icons/icon-192.png">
   <link rel="icon" type="image/png" href="static/icons/icon-192.png">
+  <link rel="stylesheet" href="static/vendor/leaflet.css">
   <link rel="stylesheet" href="static/css/app.css">
 </head>
 <body>
@@ -101,7 +102,55 @@
         </div>
       </section>
 
-      <!-- SEPARADOR 2: REGISTO DO DIA -->
+      <!-- SEPARADOR 2: CARTA & RADAR -->
+      <section id="tabCarta" class="tab-pane">
+        <div class="section-card" style="padding:10px 12px;">
+          <div class="carta-toolbar">
+            <div class="loc-btns" style="flex-wrap:wrap;">
+              <button id="btnLayerRain" class="pill-btn active">🌧️ Chuva</button>
+              <button id="btnLayerWind" class="pill-btn active">💨 Vento</button>
+              <button id="btnLayerIsobar" class="pill-btn active">🌡️ Isóbaras</button>
+            </div>
+            <div class="loc-btns">
+              <button id="btnCartaCenterGps" class="pill-btn">📡 GPS</button>
+              <button id="btnRefreshCarta" class="pill-btn">🔄</button>
+            </div>
+          </div>
+          <div id="cartaGridStatus" class="loc-sub">A aguardar abertura da carta...</div>
+        </div>
+
+        <div class="carta-map-wrap">
+          <div id="cartaMapa"></div>
+        </div>
+
+        <div class="section-card" style="padding:10px 12px;gap:8px;">
+          <div class="rain-controls">
+            <button id="btnRainPlay" class="pill-btn">▶</button>
+            <input id="rainSlider" type="range" min="0" max="10" value="10">
+            <span id="rainFrameTime" class="loc-sub" style="min-width:92px;text-align:right;">Radar: --:--</span>
+          </div>
+
+          <div class="carta-legend">
+            <strong>Chuva:</strong>
+            <span><i class="leg-dot" style="background:#38bdf8;"></i>Fraca</span>
+            <span><i class="leg-dot" style="background:#22c55e;"></i>Moderada</span>
+            <span><i class="leg-dot" style="background:#ef4444;"></i>Forte</span>
+          </div>
+          <div class="carta-legend">
+            <strong>Vento:</strong>
+            <span><i class="leg-dot" style="background:#38bdf8;"></i>&lt;15 km/h (&lt;8 nós)</span>
+            <span><i class="leg-dot" style="background:#10b981;"></i>15–30 (8–16)</span>
+            <span><i class="leg-dot" style="background:#f59e0b;"></i>30–45 (16–24)</span>
+            <span><i class="leg-dot" style="background:#ef4444;"></i>&gt;45 (&gt;24)</span>
+          </div>
+          <div class="carta-legend">
+            <strong>Pressão:</strong>
+            <span>Linhas hPa · <b>A</b> Alta Pressão · <b>B</b> Baixa Pressão</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- SEPARADOR 3: REGISTO DO DIA -->
       <section id="tabRegisto" class="tab-pane">
         <div class="section-card">
           <span class="field-label">🌊 Estado do Mar (Observação Real)</span>
@@ -181,9 +230,13 @@
         <span class="ico">🌤️</span>
         <span>Tempo & Mar</span>
       </button>
+      <button class="nav-btn" data-tab="tabCarta">
+        <span class="ico">🗺️</span>
+        <span>Carta & Radar</span>
+      </button>
       <button class="nav-btn" data-tab="tabRegisto">
         <span class="ico">📝</span>
-        <span>Registo do Dia</span>
+        <span>Registo</span>
       </button>
       <button class="nav-btn" data-tab="tabHistorico">
         <span class="ico">📚</span>
@@ -194,8 +247,10 @@
 
   <div id="toast" class="toast"></div>
 
+  <script src="static/vendor/leaflet.js"></script>
   <script src="static/js/meteo_utils.js"></script>
   <script src="static/js/db.js"></script>
+  <script src="static/js/radar_carta.js"></script>
   <script src="static/js/app.js"></script>
 </body>
 </html>

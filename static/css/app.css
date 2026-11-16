@@ -441,12 +441,66 @@ html, body {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 60;
+  z-index: 600;
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  padding: 8px 8px calc(8px + var(--safe-bottom));
+  grid-template-columns: repeat(4, 1fr);
+  padding: 8px 4px calc(8px + var(--safe-bottom));
+}
+
+/* Carta & Radar */
+.carta-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.carta-map-wrap {
+  position: relative;
+  width: 100%;
+  height: 54dvh;
+  min-height: 320px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+#cartaMapa {
+  width: 100%;
+  height: 100%;
+  background: #0b1524;
+}
+
+.carta-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  align-items: center;
+}
+
+.leg-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.rain-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rain-controls input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
 }
 
 .nav-btn {

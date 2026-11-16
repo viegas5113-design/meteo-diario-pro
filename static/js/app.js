@@ -46,6 +46,9 @@
       btn.classList.add('active');
       $(btn.dataset.tab).classList.add('active');
       if (btn.dataset.tab === 'tabHistorico') renderHistory();
+      if (btn.dataset.tab === 'tabCarta' && window.CartaRadar) {
+        window.CartaRadar.initMap(() => ({ lat: state.lat, lon: state.lon }));
+      }
     });
   });
 
