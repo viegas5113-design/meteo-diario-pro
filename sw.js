@@ -1,4 +1,4 @@
-const CACHE_NAME = 'meteo-diario-pro-v3';
+const CACHE_NAME = 'meteo-diario-pro-v4';
 
 const APP_SHELL = [
   './',
@@ -8,6 +8,7 @@ const APP_SHELL = [
   './static/vendor/leaflet.css',
   './static/vendor/leaflet.js',
   './static/js/meteo_utils.js',
+  './static/js/mares.js',
   './static/js/db.js',
   './static/js/radar_carta.js',
   './static/js/app.js',

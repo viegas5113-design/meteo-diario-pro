@@ -445,8 +445,8 @@ html, body {
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  padding: 8px 4px calc(8px + var(--safe-bottom));
+  grid-template-columns: repeat(5, 1fr);
+  padding: 8px 2px calc(8px + var(--safe-bottom));
 }
 
 /* Carta & Radar */

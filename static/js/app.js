@@ -46,6 +46,7 @@
       btn.classList.add('active');
       $(btn.dataset.tab).classList.add('active');
       if (btn.dataset.tab === 'tabHistorico') renderHistory();
+      if (btn.dataset.tab === 'tabMares') renderTides();
       if (btn.dataset.tab === 'tabCarta' && window.CartaRadar) {
         window.CartaRadar.initMap(() => ({ lat: state.lat, lon: state.lon }));
       }
@@ -92,6 +93,7 @@
     $('locCoords').textContent = `${latStr}, ${lonStr}`;
     $('btnUseGps').classList.toggle('active', state.mode === 'gps');
     $('btnUseLagos').classList.toggle('active', state.mode === 'lagos');
+    renderTides();
   }
 
   function useLagos() {
@@ -420,6 +422,66 @@
     };
     reader.readAsText(file);
   });
+
+  // --- Tabela das Marés (Lagos / GPS) ---
+  function renderTides() {
+    if (!window.MaresLagos) return;
+    const now = new Date();
+    const cur = window.MaresLagos.getCurrentTideState(now, state.lon);
+    const days = window.MaresLagos.getMultiDayTides(5, state.lon);
+
+    // Próxima Preia-Mar ou Baixa-Mar
+    const allExtremes = days.flatMap((d) => d.extremes);
+    const nextExt = allExtremes.find((e) => e.time.getTime() > now.getTime());
+    const nextTxt = nextExt
+      ? `Próxima: ${nextExt.type} às ${nextExt.time.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })} (${nextExt.height.toFixed(1).replace('.', ',')} m)`
+      : 'Próxima: --';
+
+    const hStr = `${cur.height.toFixed(1).replace('.', ',')} m`;
+    $('mTideState').textContent = `${cur.icon} ${cur.label}`;
+    $('mTideHeight').textContent = hStr;
+    $('mTideNext').textContent = nextTxt;
+
+    $('tideTabNow').textContent = `${cur.icon} ${cur.label}`;
+    $('tideTabHeight').textContent = hStr;
+    $('tideTabLoc').textContent = state.mode === 'gps' ? `GPS (${state.lon.toFixed(2)}°)` : 'Porto de Lagos';
+    $('tideTabNext').textContent = nextTxt;
+
+    const list = $('tideDaysList');
+    if (!list) return;
+    list.innerHTML = '';
+
+    days.forEach((day, idx) => {
+      let dayTitle = day.date.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: '2-digit' });
+      if (idx === 0) dayTitle = `Hoje · ${day.date.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}`;
+      else if (idx === 1) dayTitle = `Amanhã · ${day.date.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}`;
+
+      const rowsHtml = day.extremes.map((ex) => {
+        const hhmm = ex.time.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+        const hVal = `${ex.height.toFixed(1).replace('.', ',')} m`;
+        const ico = ex.isHigh ? '⬆️ Preia-Mar' : '⬇️ Baixa-Mar';
+        const clr = ex.isHigh ? 'var(--accent)' : 'var(--muted)';
+        return `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
+            <span style="font-weight:700;color:${clr};">${ico}</span>
+            <span style="font-weight:800;font-variant-numeric:tabular-nums;">${hhmm}</span>
+            <span style="font-weight:800;color:var(--text);">${hVal}</span>
+          </div>
+        `;
+      }).join('');
+
+      const card = document.createElement('div');
+      card.className = 'section-card';
+      card.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong style="text-transform:capitalize;">📅 ${dayTitle}</strong>
+          <span class="badge">Coef. ${day.coef} · ${day.tipoMare}</span>
+        </div>
+        <div>${rowsHtml}</div>
+      `;
+      list.appendChild(card);
+    });
+  }
 
   // Service Worker
   if ('serviceWorker' in navigator) {

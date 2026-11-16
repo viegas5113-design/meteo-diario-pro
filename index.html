@@ -99,6 +99,15 @@
             <span id="mSeaTemp" class="metric-val">--°C</span>
             <span id="mWaveDir" class="metric-sub">Dir. onda: --</span>
           </div>
+
+          <div class="metric-card" style="grid-column:span 2;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span class="metric-lbl">🌊 Maré Atual (Lagos)</span>
+              <span id="mTideHeight" class="metric-sub">-- m</span>
+            </div>
+            <span id="mTideState" class="metric-val">🌊 --</span>
+            <span id="mTideNext" class="metric-sub">Próxima: --</span>
+          </div>
         </div>
       </section>
 
@@ -124,7 +133,17 @@
         </div>
 
         <div class="section-card" style="padding:10px 12px;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span class="field-label" style="margin:0;">🕒 Previsão 48h (Vento & Isóbaras)</span>
+            <strong id="forecastTimeLabel" style="font-size:12.5px;color:var(--accent);">Agora</strong>
+          </div>
           <div class="rain-controls">
+            <button id="btnForecastPlay" class="pill-btn">▶</button>
+            <input id="forecastSlider" type="range" min="0" max="47" value="0">
+            <button id="btnForecastNow" class="pill-btn active">Agora</button>
+          </div>
+
+          <div class="rain-controls" style="border-top:1px solid var(--border);padding-top:8px;">
             <button id="btnRainPlay" class="pill-btn">▶</button>
             <input id="rainSlider" type="range" min="0" max="10" value="10">
             <span id="rainFrameTime" class="loc-sub" style="min-width:92px;text-align:right;">Radar: --:--</span>
@@ -150,7 +169,26 @@
         </div>
       </section>
 
-      <!-- SEPARADOR 3: REGISTO DO DIA -->
+      <!-- SEPARADOR 3: TABELA DAS MARÉS -->
+      <section id="tabMares" class="tab-pane">
+        <div class="section-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <span class="field-label">🌊 Maré no Momento</span>
+              <div id="tideTabNow" style="font-size:22px;font-weight:800;margin-top:2px;">🌊 --</div>
+            </div>
+            <div style="text-align:right;">
+              <div id="tideTabHeight" style="font-size:20px;font-weight:800;color:var(--accent);">-- m</div>
+              <div id="tideTabLoc" class="loc-sub">Porto de Lagos</div>
+            </div>
+          </div>
+          <div id="tideTabNext" class="loc-sub">Próxima maré: --</div>
+        </div>
+
+        <div id="tideDaysList" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </section>
+
+      <!-- SEPARADOR 4: REGISTO DO DIA -->
       <section id="tabRegisto" class="tab-pane">
         <div class="section-card">
           <span class="field-label">🌊 Estado do Mar (Observação Real)</span>
@@ -228,11 +266,15 @@
     <nav class="bottom-nav">
       <button class="nav-btn active" data-tab="tabTempo">
         <span class="ico">🌤️</span>
-        <span>Tempo & Mar</span>
+        <span>Tempo</span>
       </button>
       <button class="nav-btn" data-tab="tabCarta">
         <span class="ico">🗺️</span>
-        <span>Carta & Radar</span>
+        <span>Carta</span>
+      </button>
+      <button class="nav-btn" data-tab="tabMares">
+        <span class="ico">🌊</span>
+        <span>Marés</span>
       </button>
       <button class="nav-btn" data-tab="tabRegisto">
         <span class="ico">📝</span>
@@ -249,6 +291,7 @@
 
   <script src="static/vendor/leaflet.js"></script>
   <script src="static/js/meteo_utils.js"></script>
+  <script src="static/js/mares.js"></script>
   <script src="static/js/db.js"></script>
   <script src="static/js/radar_carta.js"></script>
   <script src="static/js/app.js"></script>

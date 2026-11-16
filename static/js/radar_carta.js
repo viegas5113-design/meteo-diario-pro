@@ -26,6 +26,15 @@
   let rainIdx = 0;
   let rainTimer = null;
 
+  // Previsão horária 48h (Vento + Isóbaras)
+  let forecastWindArr = [];
+  let forecastPressArr = [];
+  let forecastTimes = [];
+  let forecastBaseIdx = 0;
+  let forecastOffset = 0;
+  let forecastMaxOffset = 47;
+  let forecastTimer = null;
+
   const layersVisible = {
     rain: true,
     wind: true,
@@ -112,6 +121,16 @@
     document.getElementById('rainSlider').addEventListener('input', (e) => {
       stopRainPlay();
       setRainFrame(Number(e.target.value));
+    });
+
+    document.getElementById('btnForecastPlay').addEventListener('click', toggleForecastPlay);
+    document.getElementById('btnForecastNow').addEventListener('click', () => {
+      stopForecastPlay();
+      renderForecastHour(0);
+    });
+    document.getElementById('forecastSlider').addEventListener('input', (e) => {
+      stopForecastPlay();
+      renderForecastHour(Number(e.target.value));
     });
 
     document.getElementById('btnRefreshCarta').addEventListener('click', () => {
@@ -207,114 +226,192 @@
 
     const windUrl =
       `https://api.open-meteo.com/v1/forecast?latitude=${wCoords.lats.join(',')}&longitude=${wCoords.lons.join(',')}` +
-      `&current=wind_speed_10m,wind_direction_10m&timezone=auto`;
+      `&hourly=wind_speed_10m,wind_direction_10m&forecast_days=3&timezone=auto`;
 
     const pressUrl =
       `https://api.open-meteo.com/v1/forecast?latitude=${pCoords.lats.join(',')}&longitude=${pCoords.lons.join(',')}` +
-      `&current=pressure_msl&timezone=auto`;
+      `&hourly=pressure_msl&forecast_days=3&timezone=auto`;
 
     try {
       const [wRes, pRes] = await Promise.all([fetch(windUrl), fetch(pressUrl)]);
       const wData = await wRes.json();
       const pData = await pRes.json();
-      const wArr = Array.isArray(wData) ? wData : [wData];
-      const pArr = Array.isArray(pData) ? pData : [pData];
+      forecastWindArr = Array.isArray(wData) ? wData : [wData];
+      forecastPressArr = Array.isArray(pData) ? pData : [pData];
+      forecastTimes = (forecastWindArr[0] && forecastWindArr[0].hourly && forecastWindArr[0].hourly.time) || [];
 
-      windLayerGroup.clearLayers();
-      isobarLayerGroup.clearLayers();
-
-      // 1. Vento (Costa Algarvia)
-      const wCols = GRID_LONS.length;
-      wArr.forEach((item, idx) => {
-        const r = Math.floor(idx / wCols);
-        const c = idx % wCols;
-        const lat = GRID_LATS[r];
-        const lon = GRID_LONS[c];
-        const cur = item.current || {};
-        const spd = cur.wind_speed_10m;
-        const dir = cur.wind_direction_10m;
-
-        if (spd != null && dir != null) {
-          const col = windColor(spd);
-          const kts = (spd * 0.539957).toFixed(0);
-          L.circle([lat, lon], {
-            radius: 19000,
-            color: col,
-            fillColor: col,
-            fillOpacity: 0.22,
-            weight: 0
-          }).addTo(windLayerGroup);
-
-          const rot = (dir + 180) % 360;
-          const icon = L.divIcon({
-            className: 'wind-arrow-icon',
-            iconSize: [34, 34],
-            iconAnchor: [17, 17],
-            html: `<div style="display:flex;flex-direction:column;align-items:center;pointer-events:auto;">
-              <svg width="22" height="22" viewBox="0 0 24 24" style="transform:rotate(${rot}deg);filter:drop-shadow(0 1px 2px rgba(0,0,0,0.8));">
-                <path d="M12 2 L17 19 L12 15 L7 19 Z" fill="${col}" stroke="#ffffff" stroke-width="1.4"/>
-              </svg>
-              <span style="font-size:9.5px;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;margin-top:-3px;">${kts}kt</span>
-            </div>`
-          });
-          L.marker([lat, lon], { icon })
-            .bindPopup(`💨 Vento: <b>${Math.round(spd)} km/h</b> (${kts} nós)<br>Direção: ${Math.round(dir)}°`)
-            .addTo(windLayerGroup);
-        }
-      });
-
-      // 2. Isóbaras (Atlântico + Península Ibérica, intervalo 1 hPa)
-      const pRows = PRESS_LATS.length;
-      const pCols = PRESS_LONS.length;
-      const pressureGrid = Array.from({ length: pRows }, () => Array(pCols).fill(null));
-      let minP = Infinity, maxP = -Infinity;
-      let minPt = null, maxPt = null;
-
-      pArr.forEach((item, idx) => {
-        const r = Math.floor(idx / pCols);
-        const c = idx % pCols;
-        const lat = PRESS_LATS[r];
-        const lon = PRESS_LONS[c];
-        const p = item.current && item.current.pressure_msl;
-        if (p != null) {
-          pressureGrid[r][c] = p;
-          if (p < minP) { minP = p; minPt = { lat, lon, p }; }
-          if (p > maxP) { maxP = p; maxPt = { lat, lon, p }; }
-        }
-      });
-
-      if (isFinite(minP) && isFinite(maxP)) {
-        const startLevel = Math.floor(minP);
-        const endLevel = Math.ceil(maxP);
-        for (let level = startLevel; level <= endLevel; level += 1) {
-          drawIsobarLevel(pressureGrid, level);
-        }
-        if (maxPt) {
-          L.marker([maxPt.lat, maxPt.lon], {
-            icon: L.divIcon({
-              className: 'press-hl',
-              iconSize: [34, 34],
-              iconAnchor: [17, 17],
-              html: `<div style="background:#0284c7;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-weight:900;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.5);">A</div>`
-            })
-          }).bindPopup(`<b>Alta Pressão (A)</b><br>${maxPt.p.toFixed(1)} hPa`).addTo(isobarLayerGroup);
-        }
-        if (minPt) {
-          L.marker([minPt.lat, minPt.lon], {
-            icon: L.divIcon({
-              className: 'press-hl',
-              iconSize: [34, 34],
-              iconAnchor: [17, 17],
-              html: `<div style="background:#ef4444;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-weight:900;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.5);">B</div>`
-            })
-          }).bindPopup(`<b>Baixa Pressão (B)</b><br>${minPt.p.toFixed(1)} hPa`).addTo(isobarLayerGroup);
+      // Encontrar índice da hora atual
+      const nowMs = Date.now();
+      let bestIdx = 0;
+      let bestDiff = Infinity;
+      for (let i = 0; i < forecastTimes.length; i++) {
+        const diff = Math.abs(new Date(forecastTimes[i]).getTime() - nowMs);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestIdx = i;
         }
       }
+      forecastBaseIdx = bestIdx;
+      forecastMaxOffset = Math.max(0, Math.min(47, forecastTimes.length - 1 - forecastBaseIdx));
+      const slider = document.getElementById('forecastSlider');
+      if (slider) {
+        slider.max = String(forecastMaxOffset);
+        slider.value = '0';
+      }
 
-      statusEl.textContent = `Grelha atualizada (${Math.round(minP)}–${Math.round(maxP)} hPa · 1 hPa)`;
+      renderForecastHour(0);
     } catch (_) {
       statusEl.textContent = 'Erro ao carregar grelha (offline?)';
     }
+  }
+
+  function formatForecastLabel(isoStr, offset) {
+    if (!isoStr) return 'Agora';
+    const d = new Date(isoStr);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const dStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const dayDiff = Math.round((dStart - todayStart) / 86400000);
+
+    let dayTxt = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
+    if (offset === 0) dayTxt = 'Agora';
+    else if (dayDiff === 0) dayTxt = 'Hoje';
+    else if (dayDiff === 1) dayTxt = 'Amanhã';
+    else if (dayDiff === 2) dayTxt = 'Depois';
+
+    const hhmm = d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+    return `${dayTxt} · ${hhmm} (+${offset}h)`;
+  }
+
+  function renderForecastHour(offset) {
+    if (!forecastWindArr.length || !forecastPressArr.length) return;
+    forecastOffset = Math.max(0, Math.min(forecastMaxOffset, offset));
+    const idxHour = forecastBaseIdx + forecastOffset;
+
+    const slider = document.getElementById('forecastSlider');
+    if (slider) slider.value = String(forecastOffset);
+    const lblEl = document.getElementById('forecastTimeLabel');
+    if (lblEl) lblEl.textContent = formatForecastLabel(forecastTimes[idxHour], forecastOffset);
+
+    windLayerGroup.clearLayers();
+    isobarLayerGroup.clearLayers();
+
+    // 1. Vento (Costa Algarvia) para idxHour
+    const wCols = GRID_LONS.length;
+    forecastWindArr.forEach((item, idx) => {
+      const r = Math.floor(idx / wCols);
+      const c = idx % wCols;
+      const lat = GRID_LATS[r];
+      const lon = GRID_LONS[c];
+      const hr = item.hourly || {};
+      const spd = hr.wind_speed_10m && hr.wind_speed_10m[idxHour];
+      const dir = hr.wind_direction_10m && hr.wind_direction_10m[idxHour];
+
+      if (spd != null && dir != null) {
+        const col = windColor(spd);
+        const kts = (spd * 0.539957).toFixed(0);
+        L.circle([lat, lon], {
+          radius: 19000,
+          color: col,
+          fillColor: col,
+          fillOpacity: 0.22,
+          weight: 0
+        }).addTo(windLayerGroup);
+
+        const rot = (dir + 180) % 360;
+        const icon = L.divIcon({
+          className: 'wind-arrow-icon',
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
+          html: `<div style="display:flex;flex-direction:column;align-items:center;pointer-events:auto;">
+            <svg width="22" height="22" viewBox="0 0 24 24" style="transform:rotate(${rot}deg);filter:drop-shadow(0 1px 2px rgba(0,0,0,0.8));">
+              <path d="M12 2 L17 19 L12 15 L7 19 Z" fill="${col}" stroke="#ffffff" stroke-width="1.4"/>
+            </svg>
+            <span style="font-size:9.5px;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;margin-top:-3px;">${kts}kt</span>
+          </div>`
+        });
+        L.marker([lat, lon], { icon })
+          .bindPopup(`💨 Vento: <b>${Math.round(spd)} km/h</b> (${kts} nós)<br>Direção: ${Math.round(dir)}°`)
+          .addTo(windLayerGroup);
+      }
+    });
+
+    // 2. Isóbaras (Atlântico + Península Ibérica, intervalo 1 hPa) para idxHour
+    const pRows = PRESS_LATS.length;
+    const pCols = PRESS_LONS.length;
+    const pressureGrid = Array.from({ length: pRows }, () => Array(pCols).fill(null));
+    let minP = Infinity, maxP = -Infinity;
+    let minPt = null, maxPt = null;
+
+    forecastPressArr.forEach((item, idx) => {
+      const r = Math.floor(idx / pCols);
+      const c = idx % pCols;
+      const lat = PRESS_LATS[r];
+      const lon = PRESS_LONS[c];
+      const hr = item.hourly || {};
+      const p = hr.pressure_msl && hr.pressure_msl[idxHour];
+      if (p != null) {
+        pressureGrid[r][c] = p;
+        if (p < minP) { minP = p; minPt = { lat, lon, p }; }
+        if (p > maxP) { maxP = p; maxPt = { lat, lon, p }; }
+      }
+    });
+
+    if (isFinite(minP) && isFinite(maxP)) {
+      const startLevel = Math.floor(minP);
+      const endLevel = Math.ceil(maxP);
+      for (let level = startLevel; level <= endLevel; level += 1) {
+        drawIsobarLevel(pressureGrid, level);
+      }
+      if (maxPt) {
+        L.marker([maxPt.lat, maxPt.lon], {
+          icon: L.divIcon({
+            className: 'press-hl',
+            iconSize: [34, 34],
+            iconAnchor: [17, 17],
+            html: `<div style="background:#0284c7;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-weight:900;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.5);">A</div>`
+          })
+        }).bindPopup(`<b>Alta Pressão (A)</b><br>${maxPt.p.toFixed(1)} hPa`).addTo(isobarLayerGroup);
+      }
+      if (minPt) {
+        L.marker([minPt.lat, minPt.lon], {
+          icon: L.divIcon({
+            className: 'press-hl',
+            iconSize: [34, 34],
+            iconAnchor: [17, 17],
+            html: `<div style="background:#ef4444;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-weight:900;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.5);">B</div>`
+          })
+        }).bindPopup(`<b>Baixa Pressão (B)</b><br>${minPt.p.toFixed(1)} hPa`).addTo(isobarLayerGroup);
+      }
+    }
+
+    const statusEl = document.getElementById('cartaGridStatus');
+    if (statusEl) {
+      statusEl.textContent = `Previsão (${Math.round(minP)}–${Math.round(maxP)} hPa · 1 hPa)`;
+    }
+  }
+
+  function toggleForecastPlay() {
+    const btn = document.getElementById('btnForecastPlay');
+    if (forecastTimer) {
+      stopForecastPlay();
+      return;
+    }
+    if (!forecastTimes.length) return;
+    btn.textContent = '⏸';
+    forecastTimer = setInterval(() => {
+      const next = forecastOffset >= forecastMaxOffset ? 0 : forecastOffset + 1;
+      renderForecastHour(next);
+    }, 900);
+  }
+
+  function stopForecastPlay() {
+    if (forecastTimer) {
+      clearInterval(forecastTimer);
+      forecastTimer = null;
+    }
+    const btn = document.getElementById('btnForecastPlay');
+    if (btn) btn.textContent = '▶';
   }
 
   /**
