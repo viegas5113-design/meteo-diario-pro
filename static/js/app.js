@@ -178,7 +178,8 @@
 
     const marineUrl =
       `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}` +
-      `&current=wave_height,wave_direction,wave_period,sea_surface_temperature&timezone=auto`;
+      `&current=wave_height,wave_direction,wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction` +
+      `&hourly=ocean_current_velocity,ocean_current_direction&forecast_days=2&timezone=auto`;
 
     const moon = renderAstroCard();
 
@@ -233,6 +234,43 @@
         });
       }
 
+      // Correntes marítimas (atual + próximas 24h de 3h em 3h)
+      const marHr = (mData && mData.hourly) || {};
+      const marTimes = marHr.time || [];
+      let marCurIdx = 0;
+      let marBestDiff = Infinity;
+      for (let i = 0; i < marTimes.length; i++) {
+        const d = Math.abs(new Date(marTimes[i]).getTime() - nowMs);
+        if (d < marBestDiff) {
+          marBestDiff = d;
+          marCurIdx = i;
+        }
+      }
+      const curVelKmh = mar.ocean_current_velocity != null ? Number(mar.ocean_current_velocity) : null;
+      const curVelKts = curVelKmh != null ? curVelKmh * 0.539957 : null;
+      const curDirDeg = mar.ocean_current_direction != null ? Math.round(mar.ocean_current_direction) : null;
+      const curDirCard = curDirDeg != null ? windCardinalPT(curDirDeg) : '--';
+
+      const currents24h = [];
+      for (let step = 0; step < 8; step++) {
+        const idx = marCurIdx + step * 3;
+        if (idx >= marTimes.length) break;
+        const cKmh = marHr.ocean_current_velocity && marHr.ocean_current_velocity[idx] != null
+          ? Number(marHr.ocean_current_velocity[idx])
+          : null;
+        const cKts = cKmh != null ? cKmh * 0.539957 : null;
+        const cDeg = marHr.ocean_current_direction && marHr.ocean_current_direction[idx] != null
+          ? Math.round(marHr.ocean_current_direction[idx])
+          : null;
+        currents24h.push({
+          timeStr: new Date(marTimes[idx]).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
+          kts: cKts,
+          kmh: cKmh,
+          dirDeg: cDeg,
+          card: cDeg != null ? windCardinalPT(cDeg) : '--'
+        });
+      }
+
       const snapshot = {
         tempC: cur.temperature_2m != null ? Math.round(cur.temperature_2m * 10) / 10 : null,
         humidity: cur.relative_humidity_2m ?? null,
@@ -258,6 +296,11 @@
         waveDirDeg: mar.wave_direction != null ? Math.round(mar.wave_direction) : null,
         waveDirCard: mar.wave_direction != null ? windCardinalPT(mar.wave_direction) : null,
         seaTempC: mar.sea_surface_temperature != null ? mar.sea_surface_temperature.toFixed(1) : null,
+        curVelKmh,
+        curVelKts,
+        curDirDeg,
+        curDirCard,
+        currents24h,
         moonPhase: `${moon.icon} ${moon.name} (${moon.illum}%)`,
         hourly3h
       };
@@ -383,9 +426,85 @@
 
     renderTrafficLight(s);
     renderHourlyStrip(s.hourly3h);
+    renderCurrentsCard(s);
 
     $('regSnapshotSummary').textContent =
       `Anexo automático: ${state.locationName} · ${s.tempC ?? '--'}°C · Vento ${s.windKmh ?? '--'} km/h (${s.windDirCard}) · Mar ${s.waveHeightM ?? '--'} m`;
+  }
+
+  function classifyCurrent(kts) {
+    if (kts == null || isNaN(kts)) return { label: 'Sem dados', cls: '' };
+    if (kts < 0.5) return { label: 'Fraca', cls: 'badge-weak' };
+    if (kts <= 1.5) return { label: 'Moderada', cls: 'badge-mod' };
+    return { label: 'Forte', cls: 'badge-strong' };
+  }
+
+  function renderCurrentsCard(s) {
+    const badge = $('curIntensityBadge');
+    const spdEl = $('curSpeedMain');
+    const kmhEl = $('curSpeedKmh');
+    const arrowEl = $('curArrow');
+    const dirTxt = $('curDirText');
+    const dirSub = $('curDirSub');
+    const tableWrap = $('currentsTableWrap');
+    if (!spdEl || !tableWrap) return;
+
+    if (s.curVelKts == null) {
+      badge.textContent = 'Sem dados';
+      badge.className = 'current-badge';
+      spdEl.textContent = '-- kt';
+      kmhEl.textContent = 'Ponto em terra ou offline';
+      dirTxt.textContent = 'Corre para --';
+      dirSub.textContent = 'Sentido do fluxo';
+      arrowEl.style.transform = 'rotate(0deg)';
+    } else {
+      const info = classifyCurrent(s.curVelKts);
+      badge.textContent = info.label;
+      badge.className = `current-badge ${info.cls}`;
+      spdEl.textContent = `${s.curVelKts.toFixed(1)} kt`;
+      kmhEl.textContent = `${s.curVelKmh.toFixed(1)} km/h`;
+      if (s.curDirDeg != null) {
+        arrowEl.style.transform = `rotate(${s.curDirDeg}deg)`;
+        dirTxt.textContent = `Corre para ${s.curDirCard} · ${s.curDirDeg}°`;
+      } else {
+        dirTxt.textContent = 'Corre para --';
+      }
+      dirSub.textContent = 'Sentido do fluxo marítimo';
+    }
+
+    const rows = s.currents24h || [];
+    if (!rows.length || rows.every((r) => r.kts == null)) {
+      tableWrap.innerHTML = '<div class="loc-sub" style="padding:10px;">Sem dados horários de corrente para esta coordenada.</div>';
+      return;
+    }
+
+    const tbody = rows.map((r) => {
+      const info = classifyCurrent(r.kts);
+      const ktsStr = r.kts != null ? `${r.kts.toFixed(1)} kt` : '--';
+      const rot = r.dirDeg != null ? r.dirDeg : 0;
+      const rumo = r.dirDeg != null
+        ? `<span style="display:inline-flex;align-items:center;gap:4px;"><span style="display:inline-block;transform:rotate(${rot}deg);font-weight:900;">↑</span> ${r.card} (${r.dirDeg}°)</span>`
+        : '--';
+      return `<tr>
+        <td><strong>${r.timeStr}</strong></td>
+        <td>${ktsStr}</td>
+        <td>${rumo}</td>
+        <td><span class="current-badge ${info.cls}">${info.label}</span></td>
+      </tr>`;
+    }).join('');
+
+    tableWrap.innerHTML = `
+      <table class="currents-table">
+        <thead>
+          <tr>
+            <th>Hora</th>
+            <th>Força (kt)</th>
+            <th>Rumo</th>
+            <th>Intensidade</th>
+          </tr>
+        </thead>
+        <tbody>${tbody}</tbody>
+      </table>`;
   }
 
   // --- Formulário Registo do Dia ---

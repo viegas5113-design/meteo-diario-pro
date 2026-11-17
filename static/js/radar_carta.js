@@ -21,6 +21,7 @@
   const rainGridLayerGroup = L.layerGroup();
   const windLayerGroup = L.layerGroup();
   const waveLayerGroup = L.layerGroup();
+  const currentLayerGroup = L.layerGroup();
   const tempLayerGroup = L.layerGroup();
   const isobarLayerGroup = L.layerGroup();
 
@@ -40,10 +41,14 @@
   let forecastMaxOffset = 47;
   let forecastTimer = null;
 
-  let activeMode = 'wind'; // 'wind' | 'waves' | 'rain' | 'temp' | 'isobars'
+  let activeMode = 'wind'; // 'wind' | 'waves' | 'currents' | 'rain' | 'temp' | 'isobars'
 
   // Grelhas interpoláveis para a hora ativa
-  let currentFields = { uGrid: null, vGrid: null, tempGrid: null, waveGrid: null, waveUGrid: null, waveVGrid: null };
+  let currentFields = {
+    uGrid: null, vGrid: null, tempGrid: null,
+    waveGrid: null, waveUGrid: null, waveVGrid: null,
+    curKtsGrid: null, curUGrid: null, curVGrid: null
+  };
 
   // Partículas de Vento (Canvas 60fps estilo Windy)
   let particleCanvas = null;
@@ -113,6 +118,20 @@
     if (m <= 1.0) return lerpRgb([56, 189, 248], [16, 185, 129], Math.max(0, m) / 1.0);
     if (m <= 2.0) return lerpRgb([16, 185, 129], [245, 158, 11], (m - 1.0) / 1.0);
     if (m <= 3.5) return lerpRgb([245, 158, 11], [239, 68, 68], (m - 2.0) / 1.5);
+    return [239, 68, 68];
+  }
+
+  function currentColor(kts) {
+    if (kts < 0.5) return '#38bdf8';
+    if (kts <= 1.5) return '#10b981';
+    if (kts <= 2.5) return '#f59e0b';
+    return '#ef4444';
+  }
+
+  function currentRgb(kts) {
+    if (kts <= 0.5) return lerpRgb([56, 189, 248], [16, 185, 129], Math.max(0, kts) / 0.5);
+    if (kts <= 1.5) return lerpRgb([16, 185, 129], [245, 158, 11], (kts - 0.5) / 1.0);
+    if (kts <= 2.5) return lerpRgb([245, 158, 11], [239, 68, 68], (kts - 1.5) / 1.0);
     return [239, 68, 68];
   }
 
@@ -210,6 +229,8 @@
       leg.innerHTML = '💨 <b>Vento:</b> <span style="color:#38bdf8;">■</span> &lt;15 km/h (&lt;8 nós) · <span style="color:#10b981;">■</span> 15–30 (8–16) · <span style="color:#f59e0b;">■</span> 30–45 (16–24) · <span style="color:#ef4444;">■</span> &gt;45 (&gt;24)';
     } else if (mode === 'waves') {
       leg.innerHTML = '🌊 <b>Ondulação:</b> <span style="color:#38bdf8;">■</span> &lt;1 m · <span style="color:#10b981;">■</span> 1–2 m · <span style="color:#f59e0b;">■</span> 2–3.5 m · <span style="color:#ef4444;">■</span> &gt;3.5 m';
+    } else if (mode === 'currents') {
+      leg.innerHTML = '🧭 <b>Correntes:</b> <span style="color:#38bdf8;">■</span> &lt;0.5 kt (Fraca) · <span style="color:#10b981;">■</span> 0.5–1.5 kt (Moderada) · <span style="color:#ef4444;">■</span> &gt;1.5 kt (Forte)';
     } else if (mode === 'rain') {
       leg.innerHTML = '🌧️ <b>Chuva:</b> <span style="color:#38bdf8;">■</span> Chuvisco (&lt;1 mm/h) · <span style="color:#22c55e;">■</span> Moderada (1–4) · <span style="color:#ef4444;">■</span> Forte (&gt;4 mm/h)';
     } else if (mode === 'temp') {
@@ -224,6 +245,7 @@
     const btnMap = {
       wind: 'btnModeWind',
       waves: 'btnModeWaves',
+      currents: 'btnModeCurrents',
       rain: 'btnModeRain',
       temp: 'btnModeTemp',
       isobars: 'btnModeIsobars'
@@ -239,6 +261,9 @@
 
       if (mode === 'waves') waveLayerGroup.addTo(map);
       else map.removeLayer(waveLayerGroup);
+
+      if (mode === 'currents') currentLayerGroup.addTo(map);
+      else map.removeLayer(currentLayerGroup);
 
       if (mode === 'rain') {
         rainLayerGroup.addTo(map);
@@ -334,6 +359,9 @@
     document.getElementById('btnModeWind').addEventListener('click', () => setVisualMode('wind'));
     if (document.getElementById('btnModeWaves')) {
       document.getElementById('btnModeWaves').addEventListener('click', () => setVisualMode('waves'));
+    }
+    if (document.getElementById('btnModeCurrents')) {
+      document.getElementById('btnModeCurrents').addEventListener('click', () => setVisualMode('currents'));
     }
     document.getElementById('btnModeRain').addEventListener('click', () => setVisualMode('rain'));
     document.getElementById('btnModeTemp').addEventListener('click', () => setVisualMode('temp'));
@@ -654,6 +682,9 @@
       const wave = bilinearSample(currentFields.waveGrid, lat, lon);
       const wu = bilinearSample(currentFields.waveUGrid, lat, lon);
       const wv = bilinearSample(currentFields.waveVGrid, lat, lon);
+      const curKts = bilinearSample(currentFields.curKtsGrid, lat, lon);
+      const cu = bilinearSample(currentFields.curUGrid, lat, lon);
+      const cv = bilinearSample(currentFields.curVGrid, lat, lon);
 
       if (u == null || v == null || !Number.isFinite(u) || !Number.isFinite(v)) {
         bodyHtml = `<div class="windy-inspect-row"><span class="windy-inspect-lbl">Área</span><span class="windy-inspect-val">Fora da grelha</span></div>`;
@@ -703,6 +734,20 @@
             <div class="windy-inspect-row">
               <span class="windy-inspect-lbl">🌊 Onda</span>
               <span class="windy-inspect-val" style="color:${waveColor(wave)};">${wave.toFixed(1)} m${waveDirHtml}</span>
+            </div>`;
+        }
+
+        if (curKts != null && Number.isFinite(curKts)) {
+          let curDirHtml = '';
+          if (cu != null && cv != null && Number.isFinite(cu) && Number.isFinite(cv) && (Math.abs(cu) > 1e-4 || Math.abs(cv) > 1e-4)) {
+            const cDeg = (((Math.atan2(cu, cv) * 180) / Math.PI) % 360 + 360) % 360;
+            const cCard = degToCardinalPT(cDeg);
+            curDirHtml = ` · <svg width="12" height="12" viewBox="0 0 24 24" style="transform:rotate(${cDeg}deg);flex-shrink:0;"><path d="M12 2 L18 20 L12 15 L6 20 Z" fill="${currentColor(curKts)}" stroke="#ffffff" stroke-width="1.5"/></svg> ${cCard} (${Math.round(cDeg) % 360}°)`;
+          }
+          bodyHtml += `
+            <div class="windy-inspect-row">
+              <span class="windy-inspect-lbl">🧭 Corrente</span>
+              <span class="windy-inspect-val" style="color:${currentColor(curKts)};">${curKts.toFixed(1)} kt${curDirHtml}</span>
             </div>`;
         }
       }
@@ -793,7 +838,7 @@
 
     const marineUrl =
       `https://marine-api.open-meteo.com/v1/marine?latitude=${wCoords.lats.join(',')}&longitude=${wCoords.lons.join(',')}` +
-      `&hourly=wave_height,wave_direction&forecast_days=3&timezone=auto`;
+      `&hourly=wave_height,wave_direction,ocean_current_velocity,ocean_current_direction&forecast_days=3&timezone=auto`;
 
     try {
       const [wRes, pRes, mRes] = await Promise.all([
@@ -864,6 +909,7 @@
 
     windLayerGroup.clearLayers();
     waveLayerGroup.clearLayers();
+    currentLayerGroup.clearLayers();
     tempLayerGroup.clearLayers();
     rainGridLayerGroup.clearLayers();
     isobarLayerGroup.clearLayers();
@@ -879,6 +925,9 @@
     const waveGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
     const waveUGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
     const waveVGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const curKtsGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const curUGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const curVGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
 
     forecastWindArr.forEach((item, idx) => {
       const r = Math.floor(idx / wCols);
@@ -939,7 +988,7 @@
     const windField = buildColorFieldOverlay(windGrid, windRgb, () => 170);
     if (windField) windField.addTo(windLayerGroup);
 
-    // 1b. Ondulação (Open-Meteo Marine) para idxHour
+    // 1b. Ondulação e Correntes Marítimas (Open-Meteo Marine) para idxHour
     forecastWaveArr.forEach((item, idx) => {
       const r = Math.floor(idx / wCols);
       const c = idx % wCols;
@@ -948,6 +997,8 @@
       const hr = item.hourly || {};
       const wh = hr.wave_height && hr.wave_height[idxHour];
       const wd = hr.wave_direction && hr.wave_direction[idxHour];
+      const cvKmh = hr.ocean_current_velocity && hr.ocean_current_velocity[idxHour];
+      const cd = hr.ocean_current_direction && hr.ocean_current_direction[idxHour];
 
       if (wh != null) {
         waveGrid[r][c] = wh;
@@ -976,10 +1027,44 @@
           .bindPopup(`🌊 Ondulação: <b>${wh.toFixed(1)} m</b>${wd != null ? `<br>Direção: ${Math.round(wd)}°` : ''}`)
           .addTo(waveLayerGroup);
       }
+
+      if (cvKmh != null) {
+        const cKts = cvKmh * 0.539957;
+        curKtsGrid[r][c] = cKts;
+        if (cd != null) {
+          const cRad = (cd * Math.PI) / 180;
+          const cMag = Math.max(0.05, cKts);
+          // Convenção oceanográfica: direção PARA ONDE a corrente flui
+          curUGrid[r][c] = Math.sin(cRad) * cMag;
+          curVGrid[r][c] = Math.cos(cRad) * cMag;
+        }
+        const cCol = currentColor(cKts);
+        const cRot = cd != null ? cd : 0;
+        const cCard = cd != null ? degToCardinalPT(cd) : '--';
+        const cIcon = L.divIcon({
+          className: 'current-arrow-icon',
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
+          html: `<div style="display:flex;flex-direction:column;align-items:center;pointer-events:auto;">
+            <div style="transform:rotate(${cRot}deg);">
+              <svg width="20" height="20" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.85));">
+                <path d="M12 2 L17 18 L12 14 L7 18 Z" fill="${cCol}" stroke="#ffffff" stroke-width="1.4"/>
+              </svg>
+            </div>
+            <span style="font-size:9px;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;margin-top:-3px;">${cKts.toFixed(1)}kt</span>
+          </div>`
+        });
+        L.marker([lat, lon], { icon: cIcon })
+          .bindPopup(`🧭 Corrente: <b>${cKts.toFixed(1)} kt</b> (${cvKmh.toFixed(1)} km/h)<br>Corre para: ${cCard} (${cd != null ? Math.round(cd) : '--'}°)`)
+          .addTo(currentLayerGroup);
+      }
     });
 
     const waveField = buildColorFieldOverlay(waveGrid, waveRgb, () => 165);
     if (waveField) waveField.addTo(waveLayerGroup);
+
+    const currentField = buildColorFieldOverlay(curKtsGrid, currentRgb, () => 165);
+    if (currentField) currentField.addTo(currentLayerGroup);
 
     const tempField = buildColorFieldOverlay(tempGrid, tempRgb, () => 170);
     if (tempField) tempField.addTo(tempLayerGroup);
@@ -987,7 +1072,11 @@
     const rainField = buildColorFieldOverlay(rainGrid, rainRgb, (mm) => (mm < 0.05 ? 0 : Math.min(200, Math.round(75 + mm * 35))));
     if (rainField) rainField.addTo(rainGridLayerGroup);
 
-    currentFields = { uGrid, vGrid, tempGrid, waveGrid, waveUGrid, waveVGrid };
+    currentFields = {
+      uGrid, vGrid, tempGrid,
+      waveGrid, waveUGrid, waveVGrid,
+      curKtsGrid, curUGrid, curVGrid
+    };
     if (activeMode === 'wind') {
       rebuildScreenWindField();
       startParticles();

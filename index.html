@@ -136,6 +136,30 @@
           </div>
         </div>
 
+        <!-- CORRENTES MARÍTIMAS -->
+        <div class="section-card" style="padding:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span class="field-label" style="margin:0;">🧭 Correntes Marítimas</span>
+            <span id="curIntensityBadge" class="current-badge">--</span>
+          </div>
+          <div class="current-now-box">
+            <div>
+              <div id="curSpeedMain" class="metric-val" style="font-size:20px;">-- kt</div>
+              <div id="curSpeedKmh" class="loc-sub">-- km/h</div>
+            </div>
+            <div class="current-dir-box">
+              <span id="curArrow" class="current-arrow">↑</span>
+              <div>
+                <div id="curDirText" style="font-weight:700;font-size:13px;">Corre para --</div>
+                <div id="curDirSub" class="loc-sub">Sentido do fluxo</div>
+              </div>
+            </div>
+          </div>
+          <div id="currentsTableWrap" class="currents-table-wrap">
+            <div class="loc-sub">A carregar tabela de correntes...</div>
+          </div>
+        </div>
+
         <!-- PREVISÃO HORA A HORA (3H EM 3H) -->
         <div class="section-card" style="padding:12px;">
           <span class="field-label" style="margin:0;">🕒 Previsão Próximas 24h (3h em 3h)</span>
@@ -171,6 +195,7 @@
             <div class="loc-btns" style="flex-wrap:wrap;">
               <button id="btnModeWind" class="pill-btn active">💨 Vento (Cores + Setas)</button>
               <button id="btnModeWaves" class="pill-btn">🌊 Ondulação</button>
+              <button id="btnModeCurrents" class="pill-btn">🧭 Correntes</button>
               <button id="btnModeRain" class="pill-btn">🌧️ Chuva / Radar</button>
               <button id="btnModeTemp" class="pill-btn">🌡️ Temperatura</button>
               <button id="btnModeIsobars" class="pill-btn">🧭 Só Isóbaras</button>
@@ -229,6 +254,12 @@
             <span><i class="leg-dot" style="background:#10b981;"></i>1–2 m</span>
             <span><i class="leg-dot" style="background:#f59e0b;"></i>2–3.5 m</span>
             <span><i class="leg-dot" style="background:#ef4444;"></i>&gt;3.5 m</span>
+          </div>
+          <div class="carta-legend">
+            <strong>Correntes:</strong>
+            <span><i class="leg-dot" style="background:#38bdf8;"></i>&lt;0.5 kt (Fraca)</span>
+            <span><i class="leg-dot" style="background:#10b981;"></i>0.5–1.5 kt (Moderada)</span>
+            <span><i class="leg-dot" style="background:#ef4444;"></i>&gt;1.5 kt (Forte)</span>
           </div>
           <div class="carta-legend">
             <strong>Pressão:</strong>
