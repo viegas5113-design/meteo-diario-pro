@@ -162,12 +162,78 @@
     return '\uFEFF' + rows.join('\r\n');
   }
 
+  function calcSunTimes(lat, lon, date = new Date()) {
+    const RAD = Math.PI / 180;
+    const DEG = 180 / Math.PI;
+    const start = new Date(date.getFullYear(), 0, 0);
+    const dayOfYear = Math.floor((date - start) / 86400000);
+    const lngHour = lon / 15;
+
+    function calcEvent(isSunrise) {
+      const t = dayOfYear + ((isSunrise ? 6 : 18) - lngHour) / 24;
+      const M = 0.9856 * t - 3.289;
+      let L = M + 1.916 * Math.sin(M * RAD) + 0.02 * Math.sin(2 * M * RAD) + 282.634;
+      L = ((L % 360) + 360) % 360;
+
+      let RA = Math.atan(0.91764 * Math.tan(L * RAD)) * DEG;
+      RA = ((RA % 360) + 360) % 360;
+      RA = (RA + (Math.floor(L / 90) * 90 - Math.floor(RA / 90) * 90)) / 15;
+
+      const sinDec = 0.39782 * Math.sin(L * RAD);
+      const cosDec = Math.cos(Math.asin(sinDec));
+      const cosH = (Math.cos(90.833 * RAD) - sinDec * Math.sin(lat * RAD)) / (cosDec * Math.cos(lat * RAD));
+      if (cosH > 1 || cosH < -1) return '--:--';
+
+      let H = isSunrise ? 360 - Math.acos(cosH) * DEG : Math.acos(cosH) * DEG;
+      H = H / 15;
+      const T = H + RA - 0.06571 * t - 6.622;
+      const UT = ((T - lngHour) % 24 + 24) % 24;
+      const localT = ((UT - date.getTimezoneOffset() / 60) % 24 + 24) % 24;
+      const hh = Math.floor(localT);
+      const mm = Math.round((localT - hh) * 60);
+      return `${String(mm === 60 ? (hh + 1) % 24 : hh).padStart(2, '0')}:${String(mm === 60 ? 0 : mm).padStart(2, '0')}`;
+    }
+
+    return { sunrise: calcEvent(true), sunset: calcEvent(false) };
+  }
+
+  function calcSolunarPeriods(date = new Date(), lonDeg = -8.6730) {
+    // Calcula passagem lunar superior (trânsito) e inferior (nadir) a partir da fase sinódica
+    const ref = Date.UTC(2000, 0, 6, 18, 14, 0);
+    const synodic = 29.53058867 * 86400000;
+    const noon = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0);
+    const phase = (((noon.getTime() - ref) % synodic) + synodic) % synodic / synodic;
+    // Na Lua Nova (phase=0) o trânsito lunar é por volta das 12:00 solares; avança ~50 min/dia
+    const solarNoonOffset = (12 - (lonDeg / 15) + (-noon.getTimezoneOffset() / 60)) % 24;
+    const transitHour = (solarNoonOffset + phase * 24 + 24) % 24;
+    const underfootHour = (transitHour + 12.42) % 24;
+
+    const fmtRange = (centerH, halfWidthH) => {
+      const toHHMM = (hVal) => {
+        const h = ((hVal % 24) + 24) % 24;
+        const hh = Math.floor(h);
+        const mm = Math.round((h - hh) * 60);
+        return `${String(mm === 60 ? (hh + 1) % 24 : hh).padStart(2, '0')}:${String(mm === 60 ? 0 : mm).padStart(2, '0')}`;
+      };
+      return `${toHHMM(centerH - halfWidthH)}–${toHHMM(centerH + halfWidthH)}`;
+    };
+
+    return {
+      major1: fmtRange(transitHour, 1.0),
+      major2: fmtRange(underfootHour, 1.0),
+      minor1: fmtRange((transitHour + 6.21) % 24, 0.5),
+      minor2: fmtRange((underfootHour + 6.21) % 24, 0.5)
+    };
+  }
+
   global.MeteoUtils = {
     kmhToKnots,
     windCardinalPT,
     pressureTrend,
     moonPhasePT,
     weatherCodePT,
+    calcSunTimes,
+    calcSolunarPeriods,
     compressImageFile,
     buildCSV
   };

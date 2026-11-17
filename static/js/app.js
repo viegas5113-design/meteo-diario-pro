@@ -10,6 +10,8 @@
     pressureTrend,
     moonPhasePT,
     weatherCodePT,
+    calcSunTimes,
+    calcSolunarPeriods,
     compressImageFile,
     buildCSV
   } = window.MeteoUtils;
@@ -85,6 +87,21 @@
     state.deferredInstallPrompt = null;
   });
 
+  function renderAstroCard() {
+    const now = new Date();
+    const moon = moonPhasePT(now);
+    const sun = calcSunTimes(state.lat, state.lon, now);
+    const solunar = calcSolunarPeriods(now, state.lon);
+
+    if ($('moonIcon')) $('moonIcon').textContent = moon.icon;
+    if ($('moonName')) $('moonName').textContent = moon.name;
+    if ($('moonIllum')) $('moonIllum').textContent = `${moon.illum}% iluminada`;
+    if ($('astroMoon')) $('astroMoon').textContent = `${moon.icon} ${moon.name} (${moon.illum}%)`;
+    if ($('astroSun')) $('astroSun').textContent = `🌅 ${sun.sunrise} · 🌇 ${sun.sunset}`;
+    if ($('astroSolunar')) $('astroSolunar').textContent = `${solunar.major1} · ${solunar.major2}`;
+    return moon;
+  }
+
   // --- Localização: GPS Atual vs Lagos ---
   function updateLocationUI() {
     $('locTitle').textContent = state.mode === 'gps' ? '📡 Localização GPS Atual' : '⚓ Lagos (Algarve)';
@@ -93,6 +110,7 @@
     $('locCoords').textContent = `${latStr}, ${lonStr}`;
     $('btnUseGps').classList.toggle('active', state.mode === 'gps');
     $('btnUseLagos').classList.toggle('active', state.mode === 'lagos');
+    renderAstroCard();
     renderTides();
   }
 
@@ -141,16 +159,13 @@
     const forecastUrl =
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
       `&current=temperature_2m,relative_humidity_2m,weather_code,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
-      `&hourly=surface_pressure&past_days=1&forecast_days=1&timezone=auto`;
+      `&hourly=surface_pressure,temperature_2m,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m&past_days=1&forecast_days=2&timezone=auto`;
 
     const marineUrl =
       `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}` +
       `&current=wave_height,wave_direction,wave_period,sea_surface_temperature&timezone=auto`;
 
-    const moon = moonPhasePT(new Date());
-    $('moonIcon').textContent = moon.icon;
-    $('moonName').textContent = moon.name;
-    $('moonIllum').textContent = `${moon.illum}% iluminada`;
+    const moon = renderAstroCard();
 
     try {
       const [fRes, mRes] = await Promise.all([
@@ -174,11 +189,42 @@
       const pressure = cur.surface_pressure;
       const trend = pressureTrend(hr.time, hr.surface_pressure, pressure);
 
+      // Próximas 24h de 3h em 3h
+      const nowMs = Date.now();
+      const times = hr.time || [];
+      let curHourIdx = 0;
+      let bestDiff = Infinity;
+      for (let i = 0; i < times.length; i++) {
+        const d = Math.abs(new Date(times[i]).getTime() - nowMs);
+        if (d < bestDiff) {
+          bestDiff = d;
+          curHourIdx = i;
+        }
+      }
+      const precipProbNow = hr.precipitation_probability ? hr.precipitation_probability[curHourIdx] : 0;
+      const hourly3h = [];
+      for (let step = 0; step < 8; step++) {
+        const idx = curHourIdx + step * 3;
+        if (idx >= times.length) break;
+        const wc = weatherCodePT(hr.weather_code ? hr.weather_code[idx] : null);
+        const wSpd = hr.wind_speed_10m ? hr.wind_speed_10m[idx] : null;
+        hourly3h.push({
+          timeStr: new Date(times[idx]).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
+          icon: wc.icon,
+          temp: hr.temperature_2m && hr.temperature_2m[idx] != null ? Math.round(hr.temperature_2m[idx]) : '--',
+          rainProb: hr.precipitation_probability && hr.precipitation_probability[idx] != null ? Math.round(hr.precipitation_probability[idx]) : 0,
+          windKmh: wSpd != null ? Math.round(wSpd) : '--',
+          windKnots: kmhToKnots(wSpd)
+        });
+      }
+
       const snapshot = {
         tempC: cur.temperature_2m != null ? Math.round(cur.temperature_2m * 10) / 10 : null,
         humidity: cur.relative_humidity_2m ?? null,
+        weatherCode: cur.weather_code ?? null,
         weatherText: wCode.text,
         weatherIcon: wCode.icon,
+        precipProbNow: precipProbNow ?? 0,
         windKmh: windKmh != null ? Math.round(windKmh) : null,
         windKnots,
         gustsKmh: gustsKmh != null ? Math.round(gustsKmh) : null,
@@ -187,11 +233,14 @@
         pressureHpa: pressure != null ? Math.round(pressure) : null,
         pressureTrend: `${trend.arrow} ${trend.label}`,
         pressureTrendCls: trend.cls,
+        waveHeightNum: mar.wave_height != null ? Number(mar.wave_height) : null,
         waveHeightM: mar.wave_height != null ? mar.wave_height.toFixed(1) : null,
         wavePeriodS: mar.wave_period != null ? Math.round(mar.wave_period) : null,
+        waveDirDeg: mar.wave_direction != null ? Math.round(mar.wave_direction) : null,
         waveDirCard: mar.wave_direction != null ? windCardinalPT(mar.wave_direction) : null,
         seaTempC: mar.sea_surface_temperature != null ? mar.sea_surface_temperature.toFixed(1) : null,
-        moonPhase: `${moon.icon} ${moon.name} (${moon.illum}%)`
+        moonPhase: `${moon.icon} ${moon.name} (${moon.illum}%)`,
+        hourly3h
       };
 
       state.currentMeteo = snapshot;
@@ -201,6 +250,66 @@
       $('statusLine').textContent = 'Modo offline / erro de rede';
       showToast('Não foi possível atualizar. Verifique a ligação.');
     }
+  }
+
+  function renderTrafficLight(s) {
+    const card = $('trafficCard');
+    const badge = $('trafficBadge');
+    const advice = $('trafficAdvice');
+    const updated = $('trafficUpdated');
+    if (!card || !badge || !advice) return;
+
+    const wind = s.windKmh || 0;
+    const gusts = s.gustsKmh || 0;
+    const wave = s.waveHeightNum || 0;
+    const rainProb = s.precipProbNow || 0;
+    const code = s.weatherCode || 0;
+    const isStorm = code >= 95;
+    const isRain = (code >= 51 && code <= 82) || rainProb >= 50;
+
+    let cls = 'status-green';
+    let badgeTxt = '🟢 Dia Favorável';
+    let windDesc = wind < 15 ? 'vento fraco' : wind < 28 ? 'vento moderado' : 'vento forte';
+    let seaDesc = wave === 0 ? 'mar sem dados' : wave < 1.2 ? 'mar calmo' : wave < 2.2 ? 'mar um pouco agitado' : 'mar agitado';
+    let rainDesc = isStorm ? 'trovoada' : isRain ? 'possibilidade de chuva' : 'sem chuva';
+
+    let msg = '';
+    if (isStorm || wind >= 40 || gusts >= 55 || wave >= 2.5) {
+      cls = 'status-red';
+      badgeTxt = '🔴 Muita Atenção';
+      msg = `Condições difíceis: ${windDesc} (${wind} km/h), ${rainDesc} e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Evite sair para o mar e tenha cuidado ao ar livre.`;
+    } else if (wind >= 22 || gusts >= 35 || wave >= 1.3 || isRain) {
+      cls = 'status-yellow';
+      badgeTxt = '🟡 Atenção Moderada';
+      msg = `Dia variável: ${windDesc} (${wind} km/h), ${rainDesc} e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Leve casaco e confirme antes de navegar.`;
+    } else {
+      msg = `Excelente dia: ${windDesc} (${wind} km/h), ${rainDesc} e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Ótimo para passear, pescar ou navegar.`;
+    }
+
+    card.className = `traffic-card ${cls}`;
+    badge.textContent = badgeTxt;
+    advice.textContent = msg;
+    if (updated) {
+      updated.textContent = new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+    }
+  }
+
+  function renderHourlyStrip(items) {
+    const strip = $('hourlyStrip');
+    if (!strip) return;
+    if (!items || !items.length) {
+      strip.innerHTML = '<div class="loc-sub">Previsão horária indisponível.</div>';
+      return;
+    }
+    strip.innerHTML = items.map((h) => `
+      <div class="hour-card">
+        <div class="hour-time">${h.timeStr}</div>
+        <div class="hour-ico">${h.icon}</div>
+        <div class="hour-temp">${h.temp}°C</div>
+        <div class="hour-meta">💧 ${h.rainProb}%</div>
+        <div class="hour-meta">💨 ${h.windKmh} km/h<br>${h.windKnots} nós</div>
+      </div>
+    `).join('');
   }
 
   function renderWeatherUI(s) {
@@ -224,10 +333,16 @@
     $('mUpdatedAt').textContent = `Atualizado: ${nowStr}`;
 
     $('mWaveHeight').textContent = s.waveHeightM != null ? `${s.waveHeightM} m` : '-- m';
-    $('mWavePeriod').textContent = `Período: ${s.wavePeriodS ?? '--'} s`;
+    $('mWavePeriod').textContent = s.wavePeriodS != null ? `${s.wavePeriodS} s` : '-- s';
 
     $('mSeaTemp').textContent = s.seaTempC != null ? `${s.seaTempC}°C` : '--°C';
-    $('mWaveDir').textContent = `Dir. onda: ${s.waveDirCard || '--'}`;
+    $('mWaveDir').textContent = s.waveDirCard ? `${s.waveDirCard}${s.waveDirDeg != null ? ` ${s.waveDirDeg}°` : ''}` : '--';
+    if ($('mWaveArrow') && s.waveDirDeg != null) {
+      $('mWaveArrow').style.transform = `rotate(${(s.waveDirDeg + 180) % 360}deg)`;
+    }
+
+    renderTrafficLight(s);
+    renderHourlyStrip(s.hourly3h);
 
     $('regSnapshotSummary').textContent =
       `Anexo automático: ${state.locationName} · ${s.tempC ?? '--'}°C · Vento ${s.windKmh ?? '--'} km/h (${s.windDirCard}) · Mar ${s.waveHeightM ?? '--'} m`;
@@ -423,6 +538,54 @@
     reader.readAsText(file);
   });
 
+  function renderTideCurveSVG(now, lonDeg) {
+    const box = $('tideCurveBox');
+    if (!box || !window.MaresLagos) return;
+
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const pts = [];
+    for (let m = 0; m <= 24 * 60; m += 15) {
+      const t = new Date(start.getTime() + m * 60000);
+      pts.push({ m, h: window.MaresLagos.getTideHeight(t, lonDeg) });
+    }
+    const minH = Math.min(...pts.map((p) => p.h)) - 0.15;
+    const maxH = Math.max(...pts.map((p) => p.h)) + 0.15;
+    const W = 340, H = 120, padL = 8, padR = 8, padT = 16, padB = 22;
+    const xOf = (m) => padL + (m / 1440) * (W - padL - padR);
+    const yOf = (h) => padT + (1 - (h - minH) / (maxH - minH || 1)) * (H - padT - padB);
+
+    const linePts = pts.map((p) => `${xOf(p.m).toFixed(1)},${yOf(p.h).toFixed(1)}`).join(' ');
+    const areaPts = `${xOf(0).toFixed(1)},${H - padB} ${linePts} ${xOf(1440).toFixed(1)},${H - padB}`;
+
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const nowH = window.MaresLagos.getTideHeight(now, lonDeg);
+    const nowX = xOf(nowMin).toFixed(1);
+    const nowY = yOf(nowH).toFixed(1);
+
+    const ticks = [0, 6, 12, 18, 24].map((hr) => {
+      const x = xOf(hr * 60).toFixed(1);
+      return `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="var(--muted)" font-size="10" font-weight="700">${String(hr).padStart(2, '0')}h</text>`;
+    }).join('');
+
+    box.innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" aria-label="Curva da maré 24 horas">
+        <defs>
+          <linearGradient id="tideFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.45"/>
+            <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.04"/>
+          </linearGradient>
+        </defs>
+        <polygon points="${areaPts}" fill="url(#tideFill)"/>
+        <polyline points="${linePts}" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linejoin="round"/>
+        <line x1="${nowX}" y1="${padT}" x2="${nowX}" y2="${H - padB}" stroke="rgba(251,191,36,0.5)" stroke-dasharray="3,3" stroke-width="1.2"/>
+        <circle cx="${nowX}" cy="${nowY}" r="6" fill="rgba(251,191,36,0.35)"/>
+        <circle cx="${nowX}" cy="${nowY}" r="3.5" fill="#fbbf24" stroke="#fff" stroke-width="1.2"/>
+        <text x="${nowX}" y="${Math.max(11, Number(nowY) - 8)}" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="800">${nowH.toFixed(1).replace('.', ',')}m</text>
+        ${ticks}
+      </svg>
+    `;
+  }
+
   // --- Tabela das Marés (Lagos / GPS) ---
   function renderTides() {
     if (!window.MaresLagos) return;
@@ -430,22 +593,30 @@
     const cur = window.MaresLagos.getCurrentTideState(now, state.lon);
     const days = window.MaresLagos.getMultiDayTides(5, state.lon);
 
-    // Próxima Preia-Mar ou Baixa-Mar
+    // Próxima Preia-Mar ou Baixa-Mar + contagem decrescente
     const allExtremes = days.flatMap((d) => d.extremes);
     const nextExt = allExtremes.find((e) => e.time.getTime() > now.getTime());
-    const nextTxt = nextExt
-      ? `Próxima: ${nextExt.type} às ${nextExt.time.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })} (${nextExt.height.toFixed(1).replace('.', ',')} m)`
-      : 'Próxima: --';
+    let nextTxt = 'Próxima: --';
+    if (nextExt) {
+      const diffMin = Math.max(1, Math.round((nextExt.time.getTime() - now.getTime()) / 60000));
+      const remH = Math.floor(diffMin / 60);
+      const remM = diffMin % 60;
+      const remStr = remH > 0 ? `${remH}h ${String(remM).padStart(2, '0')}m` : `${remM} min`;
+      const hhmm = nextExt.time.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+      nextTxt = `Falta ${remStr} para ${nextExt.type} (${hhmm} · ${nextExt.height.toFixed(1).replace('.', ',')} m)`;
+    }
 
+    const dirLabel = cur.rising ? '⬆️ A Encher' : '⬇️ A Vazar';
     const hStr = `${cur.height.toFixed(1).replace('.', ',')} m`;
-    $('mTideState').textContent = `${cur.icon} ${cur.label}`;
+    $('mTideState').textContent = dirLabel;
     $('mTideHeight').textContent = hStr;
     $('mTideNext').textContent = nextTxt;
 
-    $('tideTabNow').textContent = `${cur.icon} ${cur.label}`;
+    $('tideTabNow').textContent = dirLabel;
     $('tideTabHeight').textContent = hStr;
     $('tideTabLoc').textContent = state.mode === 'gps' ? `GPS (${state.lon.toFixed(2)}°)` : 'Porto de Lagos';
     $('tideTabNext').textContent = nextTxt;
+    renderTideCurveSVG(now, state.lon);
 
     const list = $('tideDaysList');
     if (!list) return;

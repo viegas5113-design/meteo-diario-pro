@@ -548,3 +548,123 @@ html, body {
 }
 
 .toast.show { display: block; }
+
+/* Semáforo e Conselho do Dia */
+.traffic-card {
+  border-radius: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.traffic-card.status-green {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.12);
+}
+.traffic-card.status-yellow {
+  border-color: rgba(245, 158, 11, 0.65);
+  background: rgba(245, 158, 11, 0.14);
+}
+.traffic-card.status-red {
+  border-color: rgba(239, 68, 68, 0.7);
+  background: rgba(239, 68, 68, 0.16);
+}
+.traffic-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.traffic-badge {
+  font-size: 14px;
+  font-weight: 800;
+}
+.traffic-advice {
+  font-size: 13.5px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+/* Estado do Mar & Ondulação */
+.sea-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 12px;
+  margin-top: 4px;
+}
+.sea-lbl {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.wave-arrow {
+  display: inline-block;
+  font-size: 18px;
+  color: var(--accent);
+  transition: transform 0.25s ease;
+}
+
+/* Previsão Hora a Hora (3h em 3h) */
+.hourly-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.hour-card {
+  flex: 0 0 92px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+}
+.hour-time {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--accent);
+}
+.hour-ico {
+  font-size: 26px;
+  line-height: 1.1;
+}
+.hour-temp {
+  font-size: 15px;
+  font-weight: 800;
+}
+.hour-meta {
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+/* Lua, Sol & Solunares */
+.astro-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 12px;
+}
+.astro-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+/* Curva Gráfica da Maré */
+.tide-curve-box {
+  width: 100%;
+  margin-top: 6px;
+}
+.tide-curve-box svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}

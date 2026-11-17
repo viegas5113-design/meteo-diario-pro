@@ -48,6 +48,15 @@
           </div>
         </div>
 
+        <!-- SEMÁFORO E CONSELHO DO DIA -->
+        <div id="trafficCard" class="traffic-card status-green">
+          <div class="traffic-head">
+            <span id="trafficBadge" class="traffic-badge">🟢 Dia Favorável</span>
+            <span id="trafficUpdated" class="loc-sub">A analisar...</span>
+          </div>
+          <div id="trafficAdvice" class="traffic-advice">A obter condições de vento, chuva e mar...</div>
+        </div>
+
         <div class="hero-card">
           <div class="hero-left">
             <div id="wIcon" class="hero-icon">🌤️</div>
@@ -88,16 +97,29 @@
             <span id="mUpdatedAt" class="metric-sub">Atualizado: --:--</span>
           </div>
 
-          <div class="metric-card">
-            <span class="metric-lbl">🌊 Ondulação & Período</span>
-            <span id="mWaveHeight" class="metric-val">-- m</span>
-            <span id="mWavePeriod" class="metric-sub">Período: -- s</span>
-          </div>
-
-          <div class="metric-card">
-            <span class="metric-lbl">🌡️ Água do Mar</span>
-            <span id="mSeaTemp" class="metric-val">--°C</span>
-            <span id="mWaveDir" class="metric-sub">Dir. onda: --</span>
+          <div class="metric-card sea-card" style="grid-column:span 2;">
+            <span class="metric-lbl">🌊 Estado do Mar &amp; Ondulação</span>
+            <div class="sea-grid">
+              <div>
+                <div class="sea-lbl">Ondas</div>
+                <div id="mWaveHeight" class="metric-val">-- m</div>
+              </div>
+              <div>
+                <div class="sea-lbl">Direção</div>
+                <div class="metric-val" style="display:flex;align-items:center;gap:5px;">
+                  <span id="mWaveArrow" class="wave-arrow">↑</span>
+                  <span id="mWaveDir">--</span>
+                </div>
+              </div>
+              <div>
+                <div class="sea-lbl">Período</div>
+                <div id="mWavePeriod" class="metric-val">-- s</div>
+              </div>
+              <div>
+                <div class="sea-lbl">Água do Mar</div>
+                <div id="mSeaTemp" class="metric-val">--°C</div>
+              </div>
+            </div>
           </div>
 
           <div class="metric-card" style="grid-column:span 2;">
@@ -107,6 +129,33 @@
             </div>
             <span id="mTideState" class="metric-val">🌊 --</span>
             <span id="mTideNext" class="metric-sub">Próxima: --</span>
+          </div>
+        </div>
+
+        <!-- PREVISÃO HORA A HORA (3H EM 3H) -->
+        <div class="section-card" style="padding:12px;">
+          <span class="field-label" style="margin:0;">🕒 Previsão Próximas 24h (3h em 3h)</span>
+          <div id="hourlyStrip" class="hourly-strip">
+            <div class="loc-sub">A carregar previsão horária...</div>
+          </div>
+        </div>
+
+        <!-- LUA, SOL & PERÍODOS SOLUNARES -->
+        <div class="section-card" style="padding:12px;">
+          <span class="field-label" style="margin:0;">🌙 Lua, Sol &amp; Períodos Solunares</span>
+          <div class="astro-grid">
+            <div class="astro-item">
+              <span class="sea-lbl">Fase da Lua</span>
+              <strong id="astroMoon">--</strong>
+            </div>
+            <div class="astro-item">
+              <span class="sea-lbl">Nascer / Pôr do Sol</span>
+              <strong id="astroSun">--:-- / --:--</strong>
+            </div>
+            <div class="astro-item" style="grid-column:span 2;">
+              <span class="sea-lbl">🎣 Períodos Solunares Principais</span>
+              <strong id="astroSolunar">--:--–--:-- · --:--–--:--</strong>
+            </div>
           </div>
         </div>
       </section>
@@ -183,6 +232,7 @@
             </div>
           </div>
           <div id="tideTabNext" class="loc-sub">Próxima maré: --</div>
+          <div id="tideCurveBox" class="tide-curve-box"></div>
         </div>
 
         <div id="tideDaysList" style="display:flex;flex-direction:column;gap:10px;"></div>
