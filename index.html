@@ -168,9 +168,10 @@
         <div class="section-card" style="padding:10px 12px;">
           <div class="carta-toolbar">
             <div class="loc-btns" style="flex-wrap:wrap;">
-              <button id="btnLayerRain" class="pill-btn active">🌧️ Chuva</button>
-              <button id="btnLayerWind" class="pill-btn active">💨 Vento</button>
-              <button id="btnLayerIsobar" class="pill-btn active">🌡️ Isóbaras</button>
+              <button id="btnModeWind" class="pill-btn active">💨 Vento (Cores + Setas)</button>
+              <button id="btnModeRain" class="pill-btn">🌧️ Chuva / Radar</button>
+              <button id="btnModeTemp" class="pill-btn">🌡️ Temperatura</button>
+              <button id="btnModeIsobars" class="pill-btn">🧭 Só Isóbaras</button>
             </div>
             <div class="loc-btns">
               <button id="btnCartaCenterGps" class="pill-btn">📡 GPS</button>
@@ -182,6 +183,7 @@
 
         <div class="carta-map-wrap">
           <div id="cartaMapa"></div>
+          <div id="cartaMapLegend" class="carta-map-legend"></div>
         </div>
 
         <div class="section-card" style="padding:10px 12px;gap:8px;">

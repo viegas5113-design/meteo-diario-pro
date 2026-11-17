@@ -17,7 +17,9 @@
 
   // Camadas
   const rainLayerGroup = L.layerGroup();
+  const rainGridLayerGroup = L.layerGroup();
   const windLayerGroup = L.layerGroup();
+  const tempLayerGroup = L.layerGroup();
   const isobarLayerGroup = L.layerGroup();
 
   let rainTileLayer = null;
@@ -26,7 +28,7 @@
   let rainIdx = 0;
   let rainTimer = null;
 
-  // Previsão horária 48h (Vento + Isóbaras)
+  // Previsão horária 48h (Vento, Temperatura, Chuva & Isóbaras)
   let forecastWindArr = [];
   let forecastPressArr = [];
   let forecastTimes = [];
@@ -35,17 +37,147 @@
   let forecastMaxOffset = 47;
   let forecastTimer = null;
 
-  const layersVisible = {
-    rain: true,
-    wind: true,
-    isobar: true
-  };
+  let activeMode = 'wind'; // 'wind' | 'rain' | 'temp' | 'isobars'
 
   function windColor(kmh) {
     if (kmh < 15) return '#38bdf8';      // Fraco (<8 nós)
     if (kmh < 30) return '#10b981';      // Moderado (8-16 nós)
     if (kmh < 45) return '#f59e0b';      // Fresco (16-24 nós)
     return '#ef4444';                    // Forte (>24 nós)
+  }
+
+  function lerpRgb(c1, c2, t) {
+    const k = Math.max(0, Math.min(1, t));
+    return [
+      Math.round(c1[0] + (c2[0] - c1[0]) * k),
+      Math.round(c1[1] + (c2[1] - c1[1]) * k),
+      Math.round(c1[2] + (c2[2] - c1[2]) * k)
+    ];
+  }
+
+  function windRgb(kmh) {
+    if (kmh <= 15) return lerpRgb([56, 189, 248], [16, 185, 129], kmh / 15);
+    if (kmh <= 30) return lerpRgb([16, 185, 129], [245, 158, 11], (kmh - 15) / 15);
+    if (kmh <= 45) return lerpRgb([245, 158, 11], [239, 68, 68], (kmh - 30) / 15);
+    return [239, 68, 68];
+  }
+
+  function tempColor(c) {
+    if (c < 12) return '#38bdf8';
+    if (c < 20) return '#10b981';
+    if (c < 27) return '#f59e0b';
+    return '#ef4444';
+  }
+
+  function tempRgb(c) {
+    if (c <= 12) return lerpRgb([37, 99, 235], [56, 189, 248], Math.max(0, c) / 12);
+    if (c <= 20) return lerpRgb([56, 189, 248], [16, 185, 129], (c - 12) / 8);
+    if (c <= 27) return lerpRgb([16, 185, 129], [245, 158, 11], (c - 20) / 7);
+    return lerpRgb([245, 158, 11], [239, 68, 68], Math.min(1, (c - 27) / 8));
+  }
+
+  function rainRgb(mm) {
+    if (mm < 0.05) return [56, 189, 248];
+    if (mm < 1.0) return lerpRgb([56, 189, 248], [34, 197, 94], mm);
+    if (mm < 4.0) return lerpRgb([34, 197, 94], [239, 68, 68], (mm - 1.0) / 3.0);
+    return [239, 68, 68];
+  }
+
+  function buildColorFieldOverlay(grid, rgbFn, alphaFn) {
+    const rows = grid.length;
+    const cols = grid[0] ? grid[0].length : 0;
+    if (rows < 2 || cols < 2) return null;
+
+    const w = 96, h = 72;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(w, h);
+    const data = img.data;
+
+    for (let py = 0; py < h; py++) {
+      // py=0 é norte (GRID_LATS[rows-1]), py=h-1 é sul (GRID_LATS[0])
+      const fy = (1 - py / (h - 1)) * (rows - 1);
+      const r0 = Math.min(rows - 2, Math.floor(fy));
+      const r1 = r0 + 1;
+      const ty = fy - r0;
+
+      for (let px = 0; px < w; px++) {
+        const fx = (px / (w - 1)) * (cols - 1);
+        const c0 = Math.min(cols - 2, Math.floor(fx));
+        const c1 = c0 + 1;
+        const tx = fx - c0;
+
+        const v00 = grid[r0][c0], v01 = grid[r0][c1];
+        const v10 = grid[r1][c0], v11 = grid[r1][c1];
+        if (v00 == null || v01 == null || v10 == null || v11 == null) continue;
+
+        const v0 = v00 + (v01 - v00) * tx;
+        const v1 = v10 + (v11 - v10) * tx;
+        const val = v0 + (v1 - v0) * ty;
+        const [r, g, b] = rgbFn(val);
+        const a = alphaFn ? alphaFn(val) : 155;
+        const idx = (py * w + px) * 4;
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = a;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const bounds = [
+      [GRID_LATS[0], GRID_LONS[0]],
+      [GRID_LATS[rows - 1], GRID_LONS[cols - 1]]
+    ];
+    return L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 0.65, interactive: false });
+  }
+
+  function updateMapLegend(mode) {
+    const leg = document.getElementById('cartaMapLegend');
+    if (!leg) return;
+    if (mode === 'wind') {
+      leg.innerHTML = '💨 <b>Vento:</b> <span style="color:#38bdf8;">■</span> &lt;15 km/h (&lt;8 nós) · <span style="color:#10b981;">■</span> 15–30 (8–16) · <span style="color:#f59e0b;">■</span> 30–45 (16–24) · <span style="color:#ef4444;">■</span> &gt;45 (&gt;24)';
+    } else if (mode === 'rain') {
+      leg.innerHTML = '🌧️ <b>Chuva:</b> <span style="color:#38bdf8;">■</span> Chuvisco (&lt;1 mm/h) · <span style="color:#22c55e;">■</span> Moderada (1–4) · <span style="color:#ef4444;">■</span> Forte (&gt;4 mm/h)';
+    } else if (mode === 'temp') {
+      leg.innerHTML = '🌡️ <b>Temperatura:</b> <span style="color:#38bdf8;">■</span> &lt;12°C · <span style="color:#10b981;">■</span> 12–20°C · <span style="color:#f59e0b;">■</span> 20–27°C · <span style="color:#ef4444;">■</span> &gt;27°C';
+    } else {
+      leg.innerHTML = '🧭 <b>Só Isóbaras:</b> Pressão atmosférica de 1 em 1 hPa · <b>A</b> Alta · <b>B</b> Baixa';
+    }
+  }
+
+  function setVisualMode(mode) {
+    activeMode = mode;
+    const btnMap = {
+      wind: 'btnModeWind',
+      rain: 'btnModeRain',
+      temp: 'btnModeTemp',
+      isobars: 'btnModeIsobars'
+    };
+    Object.entries(btnMap).forEach(([m, id]) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('active', m === mode);
+    });
+
+    if (map) {
+      if (mode === 'wind') windLayerGroup.addTo(map);
+      else map.removeLayer(windLayerGroup);
+
+      if (mode === 'rain') {
+        rainLayerGroup.addTo(map);
+        rainGridLayerGroup.addTo(map);
+      } else {
+        map.removeLayer(rainLayerGroup);
+        map.removeLayer(rainGridLayerGroup);
+      }
+
+      if (mode === 'temp') tempLayerGroup.addTo(map);
+      else map.removeLayer(tempLayerGroup);
+
+      isobarLayerGroup.addTo(map);
+    }
+    updateMapLegend(mode);
   }
 
   function initMap(getCurrentCoords) {
@@ -65,9 +197,8 @@
       attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    rainLayerGroup.addTo(map);
-    windLayerGroup.addTo(map);
     isobarLayerGroup.addTo(map);
+    setVisualMode('wind');
 
     // Marcador inicial de Lagos
     L.circleMarker([37.1028, -8.6730], {
@@ -78,27 +209,11 @@
       weight: 2
     }).addTo(map).bindPopup('⚓ Lagos');
 
-    // Controlos de camadas
-    document.getElementById('btnLayerRain').addEventListener('click', (e) => {
-      layersVisible.rain = !layersVisible.rain;
-      e.currentTarget.classList.toggle('active', layersVisible.rain);
-      if (layersVisible.rain) rainLayerGroup.addTo(map);
-      else map.removeLayer(rainLayerGroup);
-    });
-
-    document.getElementById('btnLayerWind').addEventListener('click', (e) => {
-      layersVisible.wind = !layersVisible.wind;
-      e.currentTarget.classList.toggle('active', layersVisible.wind);
-      if (layersVisible.wind) windLayerGroup.addTo(map);
-      else map.removeLayer(windLayerGroup);
-    });
-
-    document.getElementById('btnLayerIsobar').addEventListener('click', (e) => {
-      layersVisible.isobar = !layersVisible.isobar;
-      e.currentTarget.classList.toggle('active', layersVisible.isobar);
-      if (layersVisible.isobar) isobarLayerGroup.addTo(map);
-      else map.removeLayer(isobarLayerGroup);
-    });
+    // Controlos de camadas visuais
+    document.getElementById('btnModeWind').addEventListener('click', () => setVisualMode('wind'));
+    document.getElementById('btnModeRain').addEventListener('click', () => setVisualMode('rain'));
+    document.getElementById('btnModeTemp').addEventListener('click', () => setVisualMode('temp'));
+    document.getElementById('btnModeIsobars').addEventListener('click', () => setVisualMode('isobars'));
 
     document.getElementById('btnCartaCenterGps').addEventListener('click', () => {
       const pos = getCurrentCoords();
@@ -226,7 +341,7 @@
 
     const windUrl =
       `https://api.open-meteo.com/v1/forecast?latitude=${wCoords.lats.join(',')}&longitude=${wCoords.lons.join(',')}` +
-      `&hourly=wind_speed_10m,wind_direction_10m&forecast_days=3&timezone=auto`;
+      `&hourly=wind_speed_10m,wind_direction_10m,temperature_2m,precipitation&forecast_days=3&timezone=auto`;
 
     const pressUrl =
       `https://api.open-meteo.com/v1/forecast?latitude=${pCoords.lats.join(',')}&longitude=${pCoords.lons.join(',')}` +
@@ -294,10 +409,17 @@
     if (lblEl) lblEl.textContent = formatForecastLabel(forecastTimes[idxHour], forecastOffset);
 
     windLayerGroup.clearLayers();
+    tempLayerGroup.clearLayers();
+    rainGridLayerGroup.clearLayers();
     isobarLayerGroup.clearLayers();
 
-    // 1. Vento (Costa Algarvia) para idxHour
+    // 1. Grelhas regionais (Vento, Temperatura, Chuva) para idxHour
+    const wRows = GRID_LATS.length;
     const wCols = GRID_LONS.length;
+    const windGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const tempGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const rainGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+
     forecastWindArr.forEach((item, idx) => {
       const r = Math.floor(idx / wCols);
       const c = idx % wCols;
@@ -306,27 +428,27 @@
       const hr = item.hourly || {};
       const spd = hr.wind_speed_10m && hr.wind_speed_10m[idxHour];
       const dir = hr.wind_direction_10m && hr.wind_direction_10m[idxHour];
+      const temp = hr.temperature_2m && hr.temperature_2m[idxHour];
+      const prec = hr.precipitation && hr.precipitation[idxHour];
+
+      if (spd != null) windGrid[r][c] = spd;
+      if (temp != null) tempGrid[r][c] = temp;
+      if (prec != null) rainGrid[r][c] = prec;
 
       if (spd != null && dir != null) {
         const col = windColor(spd);
         const kts = (spd * 0.539957).toFixed(0);
-        L.circle([lat, lon], {
-          radius: 19000,
-          color: col,
-          fillColor: col,
-          fillOpacity: 0.22,
-          weight: 0
-        }).addTo(windLayerGroup);
-
         const rot = (dir + 180) % 360;
         const icon = L.divIcon({
           className: 'wind-arrow-icon',
           iconSize: [34, 34],
           iconAnchor: [17, 17],
           html: `<div style="display:flex;flex-direction:column;align-items:center;pointer-events:auto;">
-            <svg width="22" height="22" viewBox="0 0 24 24" style="transform:rotate(${rot}deg);filter:drop-shadow(0 1px 2px rgba(0,0,0,0.8));">
-              <path d="M12 2 L17 19 L12 15 L7 19 Z" fill="${col}" stroke="#ffffff" stroke-width="1.4"/>
-            </svg>
+            <div style="transform:rotate(${rot}deg);">
+              <svg class="wind-arrow-anim" width="22" height="22" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.85));">
+                <path d="M12 2 L17 19 L12 15 L7 19 Z" fill="${col}" stroke="#ffffff" stroke-width="1.4"/>
+              </svg>
+            </div>
             <span style="font-size:9.5px;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;margin-top:-3px;">${kts}kt</span>
           </div>`
         });
@@ -334,7 +456,29 @@
           .bindPopup(`💨 Vento: <b>${Math.round(spd)} km/h</b> (${kts} nós)<br>Direção: ${Math.round(dir)}°`)
           .addTo(windLayerGroup);
       }
+
+      if (temp != null) {
+        const tCol = tempColor(temp);
+        const tIcon = L.divIcon({
+          className: 'temp-val-icon',
+          iconSize: [36, 20],
+          iconAnchor: [18, 10],
+          html: `<div style="background:rgba(15,23,42,0.78);color:${tCol};border:1px solid ${tCol};border-radius:999px;font-size:10.5px;font-weight:800;text-align:center;line-height:18px;box-shadow:0 1px 4px rgba(0,0,0,0.5);">${Math.round(temp)}°</div>`
+        });
+        L.marker([lat, lon], { icon: tIcon })
+          .bindPopup(`🌡️ Temperatura: <b>${temp.toFixed(1)}°C</b>`)
+          .addTo(tempLayerGroup);
+      }
     });
+
+    const windField = buildColorFieldOverlay(windGrid, windRgb, () => 170);
+    if (windField) windField.addTo(windLayerGroup);
+
+    const tempField = buildColorFieldOverlay(tempGrid, tempRgb, () => 170);
+    if (tempField) tempField.addTo(tempLayerGroup);
+
+    const rainField = buildColorFieldOverlay(rainGrid, rainRgb, (mm) => (mm < 0.05 ? 0 : Math.min(200, Math.round(75 + mm * 35))));
+    if (rainField) rainField.addTo(rainGridLayerGroup);
 
     // 2. Isóbaras (Atlântico + Península Ibérica, intervalo 1 hPa) para idxHour
     const pRows = PRESS_LATS.length;
