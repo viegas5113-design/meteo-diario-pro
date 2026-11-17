@@ -191,6 +191,15 @@ html, body {
   border-color: var(--accent);
 }
 
+.pill-btn-sm {
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.carta-presets {
+  margin-top: 2px;
+}
+
 /* Hero Weather Card */
 .hero-card {
   background: linear-gradient(135deg, rgba(2, 132, 199, 0.25), rgba(16, 185, 129, 0.12));

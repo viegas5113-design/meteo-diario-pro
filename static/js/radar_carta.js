@@ -4,8 +4,9 @@
 (function (global) {
   'use strict';
 
-  const GRID_LATS = [35.8, 36.3, 36.8, 37.3, 37.8];
-  const GRID_LONS = [-10.0, -9.4, -8.8, -8.2, -7.6, -7.0];
+  // Grelha alargada Portugal Continental + Golfo de Cádis + Estreito de Gibraltar (35.0°N–42.5°N, 11.5°O–4.0°O, passo 1.25°)
+  const GRID_LATS = [35.0, 36.25, 37.5, 38.75, 40.0, 41.25, 42.5];
+  const GRID_LONS = [-11.5, -10.25, -9.0, -7.75, -6.5, -5.25, -4.0];
 
   // Grelha alargada Atlântico + Península Ibérica para isóbaras contínuas (30°N–46°N, 20°O–2°E)
   const PRESS_LATS = [30, 32, 34, 36, 38, 40, 42, 44, 46];
@@ -88,7 +89,7 @@
     const cols = grid[0] ? grid[0].length : 0;
     if (rows < 2 || cols < 2) return null;
 
-    const w = 96, h = 72;
+    const w = 96, h = 96;
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
@@ -200,7 +201,7 @@
     isobarLayerGroup.addTo(map);
     setVisualMode('wind');
 
-    // Marcador inicial de Lagos
+    // Marcadores de referência (Lagos e Estreito de Gibraltar)
     L.circleMarker([37.1028, -8.6730], {
       radius: 5,
       color: '#ffffff',
@@ -208,6 +209,32 @@
       fillOpacity: 1,
       weight: 2
     }).addTo(map).bindPopup('⚓ Lagos');
+
+    L.circleMarker([36.01, -5.60], {
+      radius: 5,
+      color: '#ffffff',
+      fillColor: '#0284c7',
+      fillOpacity: 1,
+      weight: 2
+    }).addTo(map).bindPopup('🌊 Estreito de Gibraltar (Tarifa)');
+
+    // Botões de enquadramento rápido
+    const presetViews = {
+      btnZoomAlgarveEstreito: () => map.fitBounds([[35.4, -9.2], [37.6, -5.2]], { padding: [10, 10] }),
+      btnZoomPortugalEstreito: () => map.fitBounds([[35.2, -10.2], [42.3, -5.0]], { padding: [10, 10] }),
+      btnZoomCostaLagos: () => map.setView([37.05, -8.67], 9)
+    };
+    Object.entries(presetViews).forEach(([id, fn]) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        Object.keys(presetViews).forEach((k) => {
+          const el = document.getElementById(k);
+          if (el) el.classList.toggle('active', k === id);
+        });
+        fn();
+      });
+    });
 
     // Controlos de camadas visuais
     document.getElementById('btnModeWind').addEventListener('click', () => setVisualMode('wind'));

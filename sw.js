@@ -1,4 +1,4 @@
-const CACHE_NAME = 'meteo-diario-pro-v7';
+const CACHE_NAME = 'meteo-diario-pro-v8';
 
 const APP_SHELL = [
   './',

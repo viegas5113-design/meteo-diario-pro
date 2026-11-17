@@ -42,9 +42,10 @@
             <span id="locTitle" class="loc-name">📍 Lagos (Padrão)</span>
             <span id="locCoords" class="loc-sub">37.1028° N, -8.6730° O</span>
           </div>
-          <div class="loc-btns">
+          <div class="loc-btns" style="flex-wrap:wrap;">
             <button id="btnUseGps" class="pill-btn">📡 GPS Atual</button>
             <button id="btnUseLagos" class="pill-btn active">⚓ Lagos</button>
+            <button id="btnUseGibraltar" class="pill-btn">🌊 Estreito de Gibraltar (Tarifa)</button>
           </div>
         </div>
 
@@ -177,6 +178,11 @@
               <button id="btnCartaCenterGps" class="pill-btn">📡 GPS</button>
               <button id="btnRefreshCarta" class="pill-btn">🔄</button>
             </div>
+          </div>
+          <div class="loc-btns carta-presets" style="flex-wrap:wrap;">
+            <button id="btnZoomAlgarveEstreito" class="pill-btn pill-btn-sm">🌊 Algarve &amp; Estreito</button>
+            <button id="btnZoomPortugalEstreito" class="pill-btn pill-btn-sm">🇵🇹 Portugal &amp; Estreito</button>
+            <button id="btnZoomCostaLagos" class="pill-btn pill-btn-sm active">⚓ Costa de Lagos</button>
           </div>
           <div id="cartaGridStatus" class="loc-sub">A aguardar abertura da carta...</div>
         </div>

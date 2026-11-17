@@ -17,10 +17,11 @@
   } = window.MeteoUtils;
 
   const LAGOS = { lat: 37.1028, lon: -8.6730, name: 'Lagos' };
+  const GIBRALTAR = { lat: 36.01, lon: -5.60, name: 'Estreito de Gibraltar (Tarifa)' };
   const STORAGE_THEME = 'meteo_diario_theme_v1';
 
   const state = {
-    mode: 'lagos', // 'gps' | 'lagos'
+    mode: 'lagos', // 'gps' | 'lagos' | 'gibraltar'
     lat: LAGOS.lat,
     lon: LAGOS.lon,
     locationName: LAGOS.name,
@@ -102,26 +103,38 @@
     return moon;
   }
 
-  // --- Localização: GPS Atual vs Lagos ---
+  // --- Localização: GPS Atual vs Locais Rápidos ---
   function updateLocationUI() {
-    $('locTitle').textContent = state.mode === 'gps' ? '📡 Localização GPS Atual' : '⚓ Lagos (Algarve)';
+    if (state.mode === 'gps') {
+      $('locTitle').textContent = '📡 Localização GPS Atual';
+    } else if (state.mode === 'gibraltar') {
+      $('locTitle').textContent = '🌊 Estreito de Gibraltar (Tarifa)';
+    } else {
+      $('locTitle').textContent = '⚓ Lagos (Algarve)';
+    }
     const latStr = `${Math.abs(state.lat).toFixed(4)}° ${state.lat >= 0 ? 'N' : 'S'}`;
     const lonStr = `${Math.abs(state.lon).toFixed(4)}° ${state.lon >= 0 ? 'E' : 'O'}`;
     $('locCoords').textContent = `${latStr}, ${lonStr}`;
     $('btnUseGps').classList.toggle('active', state.mode === 'gps');
     $('btnUseLagos').classList.toggle('active', state.mode === 'lagos');
+    if ($('btnUseGibraltar')) {
+      $('btnUseGibraltar').classList.toggle('active', state.mode === 'gibraltar');
+    }
     renderAstroCard();
     renderTides();
   }
 
-  function useLagos() {
-    state.mode = 'lagos';
-    state.lat = LAGOS.lat;
-    state.lon = LAGOS.lon;
-    state.locationName = LAGOS.name;
+  function usePreset(mode, loc) {
+    state.mode = mode;
+    state.lat = loc.lat;
+    state.lon = loc.lon;
+    state.locationName = loc.name;
     updateLocationUI();
     fetchWeatherAndMarine();
   }
+
+  const useLagos = () => usePreset('lagos', LAGOS);
+  const useGibraltar = () => usePreset('gibraltar', GIBRALTAR);
 
   function useGPS() {
     if (!('geolocation' in navigator)) {
@@ -147,6 +160,7 @@
   }
 
   $('btnUseLagos').addEventListener('click', useLagos);
+  if ($('btnUseGibraltar')) $('btnUseGibraltar').addEventListener('click', useGibraltar);
   $('btnUseGps').addEventListener('click', useGPS);
   $('btnRefresh').addEventListener('click', fetchWeatherAndMarine);
   if ($('btnTrafficRefresh')) $('btnTrafficRefresh').addEventListener('click', fetchWeatherAndMarine);
@@ -640,7 +654,9 @@
 
     $('tideTabNow').textContent = dirLabel;
     $('tideTabHeight').textContent = hStr;
-    $('tideTabLoc').textContent = state.mode === 'gps' ? `GPS (${state.lon.toFixed(2)}°)` : 'Porto de Lagos';
+    $('tideTabLoc').textContent = state.mode === 'lagos'
+      ? 'Porto de Lagos'
+      : `${state.locationName} (${state.lon.toFixed(2)}°)`;
     $('tideTabNext').textContent = nextTxt;
     renderTideCurveSVG(now, state.lon);
 
