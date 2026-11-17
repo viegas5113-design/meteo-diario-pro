@@ -52,7 +52,10 @@
         <div id="trafficCard" class="traffic-card status-green">
           <div class="traffic-head">
             <span id="trafficBadge" class="traffic-badge">🟢 Dia Favorável</span>
-            <span id="trafficUpdated" class="loc-sub">A analisar...</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span id="trafficUpdated" class="loc-sub">--:--</span>
+              <button id="btnTrafficRefresh" class="pill-btn" style="padding:3px 8px;font-size:11px;" title="Forçar nova leitura da meteorologia">🔄 Atualizar Agora</button>
+            </div>
           </div>
           <div id="trafficAdvice" class="traffic-advice">A obter condições de vento, chuva e mar...</div>
         </div>

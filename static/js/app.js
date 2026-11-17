@@ -149,6 +149,7 @@
   $('btnUseLagos').addEventListener('click', useLagos);
   $('btnUseGps').addEventListener('click', useGPS);
   $('btnRefresh').addEventListener('click', fetchWeatherAndMarine);
+  if ($('btnTrafficRefresh')) $('btnTrafficRefresh').addEventListener('click', fetchWeatherAndMarine);
 
   // --- Open-Meteo API (Tempo + Mar) ---
   async function fetchWeatherAndMarine() {
@@ -158,8 +159,8 @@
 
     const forecastUrl =
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-      `&current=temperature_2m,relative_humidity_2m,weather_code,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
-      `&hourly=surface_pressure,temperature_2m,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m&past_days=1&forecast_days=2&timezone=auto`;
+      `&current=temperature_2m,relative_humidity_2m,precipitation,rain,showers,cloud_cover,weather_code,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
+      `&hourly=surface_pressure,temperature_2m,precipitation_probability,precipitation,cloud_cover,weather_code,wind_speed_10m,wind_direction_10m&past_days=1&forecast_days=2&timezone=auto`;
 
     const marineUrl =
       `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}` +
@@ -221,9 +222,13 @@
       const snapshot = {
         tempC: cur.temperature_2m != null ? Math.round(cur.temperature_2m * 10) / 10 : null,
         humidity: cur.relative_humidity_2m ?? null,
-        weatherCode: cur.weather_code ?? null,
+        weatherCode: cur.weather_code != null ? Number(cur.weather_code) : null,
         weatherText: wCode.text,
         weatherIcon: wCode.icon,
+        precipitationMm: Number(cur.precipitation || 0),
+        rainMm: Number(cur.rain || 0),
+        showersMm: Number(cur.showers || 0),
+        cloudCover: cur.cloud_cover != null ? Number(cur.cloud_cover) : (hr.cloud_cover ? Number(hr.cloud_cover[curHourIdx] || 0) : 0),
         precipProbNow: precipProbNow ?? 0,
         windKmh: windKmh != null ? Math.round(windKmh) : null,
         windKnots,
@@ -263,34 +268,55 @@
     const gusts = s.gustsKmh || 0;
     const wave = s.waveHeightNum || 0;
     const rainProb = s.precipProbNow || 0;
-    const code = s.weatherCode || 0;
-    const isStorm = code >= 95;
-    const isRain = (code >= 51 && code <= 82) || rainProb >= 50;
+    const code = s.weatherCode != null ? Number(s.weatherCode) : 0;
+    const precip = s.precipitationMm || 0;
+    const rain = s.rainMm || 0;
+    const showers = s.showersMm || 0;
+    const cloudCover = s.cloudCover || 0;
+
+    const isStorm = code >= 95 && code <= 99;
+    const isWmoRain = (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
+    const hasPrecip = precip > 0 || rain > 0 || showers > 0;
+    const isDrizzle = (code >= 51 && code <= 57) && !isStorm;
+    const isHeavyRain = (code >= 63 && code <= 67) || code === 82 || precip >= 3.0;
+    const isRain = isWmoRain || hasPrecip;
+    const isFog = code === 45 || code === 48;
+    const isOvercast = !isRain && !isStorm && (code === 3 || cloudCover >= 80);
 
     let cls = 'status-green';
     let badgeTxt = '🟢 Dia Favorável';
-    let windDesc = wind < 15 ? 'vento fraco' : wind < 28 ? 'vento moderado' : 'vento forte';
-    let seaDesc = wave === 0 ? 'mar sem dados' : wave < 1.2 ? 'mar calmo' : wave < 2.2 ? 'mar um pouco agitado' : 'mar agitado';
-    let rainDesc = isStorm ? 'trovoada' : isRain ? 'possibilidade de chuva' : 'sem chuva';
+    const windDesc = wind < 15 ? 'vento fraco' : wind < 28 ? 'vento moderado' : 'vento forte';
+    const seaDesc = wave === 0 ? 'mar sem dados' : wave < 1.2 ? 'mar calmo' : wave < 2.2 ? 'mar um pouco agitado' : 'mar agitado';
+
+    let skyDesc = 'sem chuva';
+    if (isStorm) skyDesc = 'trovoada e chuva';
+    else if (isHeavyRain) skyDesc = 'chuva forte';
+    else if (isDrizzle) skyDesc = 'chuvisco / chuva fraca';
+    else if (isRain) skyDesc = 'chuva / aguaceiros';
+    else if (isFog) skyDesc = 'nevoeiro';
+    else if (isOvercast) skyDesc = 'céu muito nublado / encoberto';
+    else if (rainProb >= 50) skyDesc = 'possibilidade de chuva';
 
     let msg = '';
-    if (isStorm || wind >= 40 || gusts >= 55 || wave >= 2.5) {
+    if (isStorm || isHeavyRain || wind >= 40 || gusts >= 55 || wave >= 2.5) {
       cls = 'status-red';
       badgeTxt = '🔴 Muita Atenção';
-      msg = `Condições difíceis: ${windDesc} (${wind} km/h), ${rainDesc} e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Evite sair para o mar e tenha cuidado ao ar livre.`;
-    } else if (wind >= 22 || gusts >= 35 || wave >= 1.3 || isRain) {
+      msg = `Condições difíceis: ${skyDesc}, ${windDesc} (${wind} km/h) e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Evite sair para o mar e tenha cuidado ao ar livre.`;
+    } else if (isRain || isFog || wind >= 22 || gusts >= 35 || wave >= 1.3 || rainProb >= 50) {
       cls = 'status-yellow';
       badgeTxt = '🟡 Atenção Moderada';
-      msg = `Dia variável: ${windDesc} (${wind} km/h), ${rainDesc} e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Leve casaco e confirme antes de navegar.`;
+      msg = `Atenção: ${skyDesc}, ${windDesc} (${wind} km/h) e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Leve impermeável/casaco e confirme antes de navegar.`;
+    } else if (isOvercast) {
+      msg = `Céu muito nublado / encoberto, mas sem chuva, ${windDesc} (${wind} km/h) e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Bom para passear.`;
     } else {
-      msg = `Excelente dia: ${windDesc} (${wind} km/h), ${rainDesc} e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Ótimo para passear, pescar ou navegar.`;
+      msg = `Boas condições: ${skyDesc}, ${windDesc} (${wind} km/h) e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Ótimo para passear, pescar ou navegar.`;
     }
 
     card.className = `traffic-card ${cls}`;
     badge.textContent = badgeTxt;
     advice.textContent = msg;
     if (updated) {
-      updated.textContent = new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+      updated.textContent = `Atualizado: ${new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}`;
     }
   }
 
