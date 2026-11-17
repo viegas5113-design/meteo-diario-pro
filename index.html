@@ -170,6 +170,7 @@
           <div class="carta-toolbar">
             <div class="loc-btns" style="flex-wrap:wrap;">
               <button id="btnModeWind" class="pill-btn active">💨 Vento (Cores + Setas)</button>
+              <button id="btnModeWaves" class="pill-btn">🌊 Ondulação</button>
               <button id="btnModeRain" class="pill-btn">🌧️ Chuva / Radar</button>
               <button id="btnModeTemp" class="pill-btn">🌡️ Temperatura</button>
               <button id="btnModeIsobars" class="pill-btn">🧭 Só Isóbaras</button>
@@ -198,7 +199,7 @@
             <strong id="forecastTimeLabel" style="font-size:12.5px;color:var(--accent);">Agora</strong>
           </div>
           <div class="rain-controls">
-            <button id="btnForecastPlay" class="pill-btn">▶</button>
+            <button id="btnForecastPlay" class="pill-btn" title="Animar previsão 48h">▶️</button>
             <input id="forecastSlider" type="range" min="0" max="47" value="0">
             <button id="btnForecastNow" class="pill-btn active">Agora</button>
           </div>
@@ -221,6 +222,13 @@
             <span><i class="leg-dot" style="background:#10b981;"></i>15–30 (8–16)</span>
             <span><i class="leg-dot" style="background:#f59e0b;"></i>30–45 (16–24)</span>
             <span><i class="leg-dot" style="background:#ef4444;"></i>&gt;45 (&gt;24)</span>
+          </div>
+          <div class="carta-legend">
+            <strong>Ondulação:</strong>
+            <span><i class="leg-dot" style="background:#38bdf8;"></i>&lt;1 m</span>
+            <span><i class="leg-dot" style="background:#10b981;"></i>1–2 m</span>
+            <span><i class="leg-dot" style="background:#f59e0b;"></i>2–3.5 m</span>
+            <span><i class="leg-dot" style="background:#ef4444;"></i>&gt;3.5 m</span>
           </div>
           <div class="carta-legend">
             <strong>Pressão:</strong>

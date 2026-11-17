@@ -20,6 +20,7 @@
   const rainLayerGroup = L.layerGroup();
   const rainGridLayerGroup = L.layerGroup();
   const windLayerGroup = L.layerGroup();
+  const waveLayerGroup = L.layerGroup();
   const tempLayerGroup = L.layerGroup();
   const isobarLayerGroup = L.layerGroup();
 
@@ -29,16 +30,33 @@
   let rainIdx = 0;
   let rainTimer = null;
 
-  // Previsão horária 48h (Vento, Temperatura, Chuva & Isóbaras)
+  // Previsão horária 48h (Vento, Temperatura, Chuva, Ondulação & Isóbaras)
   let forecastWindArr = [];
   let forecastPressArr = [];
+  let forecastWaveArr = [];
   let forecastTimes = [];
   let forecastBaseIdx = 0;
   let forecastOffset = 0;
   let forecastMaxOffset = 47;
   let forecastTimer = null;
 
-  let activeMode = 'wind'; // 'wind' | 'rain' | 'temp' | 'isobars'
+  let activeMode = 'wind'; // 'wind' | 'waves' | 'rain' | 'temp' | 'isobars'
+
+  // Grelhas interpoláveis para a hora ativa
+  let currentFields = { uGrid: null, vGrid: null, tempGrid: null, waveGrid: null };
+
+  // Partículas de Vento (Canvas 60fps estilo Windy)
+  let particleCanvas = null;
+  let particleCtx = null;
+  let particles = [];
+  let particleRaf = null;
+  let particlesPaused = false;
+  let screenWindField = null; // { cols, rows, u, v, w, h }
+
+  // Inspetor de Ponto (clicar/tocar no mapa)
+  let inspectMarker = null;
+  let inspectPopup = null;
+  let inspectLatLng = null;
 
   function windColor(kmh) {
     if (kmh < 15) return '#38bdf8';      // Fraco (<8 nós)
@@ -84,6 +102,54 @@
     return [239, 68, 68];
   }
 
+  function waveColor(m) {
+    if (m < 1.0) return '#38bdf8';
+    if (m < 2.0) return '#10b981';
+    if (m < 3.5) return '#f59e0b';
+    return '#ef4444';
+  }
+
+  function waveRgb(m) {
+    if (m <= 1.0) return lerpRgb([56, 189, 248], [16, 185, 129], Math.max(0, m) / 1.0);
+    if (m <= 2.0) return lerpRgb([16, 185, 129], [245, 158, 11], (m - 1.0) / 1.0);
+    if (m <= 3.5) return lerpRgb([245, 158, 11], [239, 68, 68], (m - 2.0) / 1.5);
+    return [239, 68, 68];
+  }
+
+  /**
+   * Interpolação bilinear na grelha regional (GRID_LATS x GRID_LONS).
+   * Suporta células costeiras com nulls parciais (ex: ondulação).
+   */
+  function bilinearSample(grid, lat, lon) {
+    if (!grid || !grid.length) return null;
+    const rows = GRID_LATS.length;
+    const cols = GRID_LONS.length;
+    const latMin = GRID_LATS[0], latMax = GRID_LATS[rows - 1];
+    const lonMin = GRID_LONS[0], lonMax = GRID_LONS[cols - 1];
+    if (lat < latMin || lat > latMax || lon < lonMin || lon > lonMax) return null;
+
+    const fy = ((lat - latMin) / (latMax - latMin)) * (rows - 1);
+    const fx = ((lon - lonMin) / (lonMax - lonMin)) * (cols - 1);
+    const r0 = Math.min(rows - 2, Math.max(0, Math.floor(fy)));
+    const c0 = Math.min(cols - 2, Math.max(0, Math.floor(fx)));
+    const r1 = r0 + 1;
+    const c1 = c0 + 1;
+    const ty = fy - r0;
+    const tx = fx - c0;
+
+    const v00 = grid[r0][c0], v01 = grid[r0][c1];
+    const v10 = grid[r1][c0], v11 = grid[r1][c1];
+
+    const w00 = v00 != null ? (1 - tx) * (1 - ty) : 0;
+    const w01 = v01 != null ? tx * (1 - ty) : 0;
+    const w10 = v10 != null ? (1 - tx) * ty : 0;
+    const w11 = v11 != null ? tx * ty : 0;
+    const wSum = w00 + w01 + w10 + w11;
+    if (wSum < 0.45) return null;
+
+    return ((v00 || 0) * w00 + (v01 || 0) * w01 + (v10 || 0) * w10 + (v11 || 0) * w11) / wSum;
+  }
+
   function buildColorFieldOverlay(grid, rgbFn, alphaFn) {
     const rows = grid.length;
     const cols = grid[0] ? grid[0].length : 0;
@@ -112,11 +178,14 @@
 
         const v00 = grid[r0][c0], v01 = grid[r0][c1];
         const v10 = grid[r1][c0], v11 = grid[r1][c1];
-        if (v00 == null || v01 == null || v10 == null || v11 == null) continue;
+        const w00 = v00 != null ? (1 - tx) * (1 - ty) : 0;
+        const w01 = v01 != null ? tx * (1 - ty) : 0;
+        const w10 = v10 != null ? (1 - tx) * ty : 0;
+        const w11 = v11 != null ? tx * ty : 0;
+        const wSum = w00 + w01 + w10 + w11;
+        if (wSum < 0.45) continue;
 
-        const v0 = v00 + (v01 - v00) * tx;
-        const v1 = v10 + (v11 - v10) * tx;
-        const val = v0 + (v1 - v0) * ty;
+        const val = ((v00 || 0) * w00 + (v01 || 0) * w01 + (v10 || 0) * w10 + (v11 || 0) * w11) / wSum;
         const [r, g, b] = rgbFn(val);
         const a = alphaFn ? alphaFn(val) : 155;
         const idx = (py * w + px) * 4;
@@ -139,6 +208,8 @@
     if (!leg) return;
     if (mode === 'wind') {
       leg.innerHTML = '💨 <b>Vento:</b> <span style="color:#38bdf8;">■</span> &lt;15 km/h (&lt;8 nós) · <span style="color:#10b981;">■</span> 15–30 (8–16) · <span style="color:#f59e0b;">■</span> 30–45 (16–24) · <span style="color:#ef4444;">■</span> &gt;45 (&gt;24)';
+    } else if (mode === 'waves') {
+      leg.innerHTML = '🌊 <b>Ondulação:</b> <span style="color:#38bdf8;">■</span> &lt;1 m · <span style="color:#10b981;">■</span> 1–2 m · <span style="color:#f59e0b;">■</span> 2–3.5 m · <span style="color:#ef4444;">■</span> &gt;3.5 m';
     } else if (mode === 'rain') {
       leg.innerHTML = '🌧️ <b>Chuva:</b> <span style="color:#38bdf8;">■</span> Chuvisco (&lt;1 mm/h) · <span style="color:#22c55e;">■</span> Moderada (1–4) · <span style="color:#ef4444;">■</span> Forte (&gt;4 mm/h)';
     } else if (mode === 'temp') {
@@ -152,6 +223,7 @@
     activeMode = mode;
     const btnMap = {
       wind: 'btnModeWind',
+      waves: 'btnModeWaves',
       rain: 'btnModeRain',
       temp: 'btnModeTemp',
       isobars: 'btnModeIsobars'
@@ -164,6 +236,9 @@
     if (map) {
       if (mode === 'wind') windLayerGroup.addTo(map);
       else map.removeLayer(windLayerGroup);
+
+      if (mode === 'waves') waveLayerGroup.addTo(map);
+      else map.removeLayer(waveLayerGroup);
 
       if (mode === 'rain') {
         rainLayerGroup.addTo(map);
@@ -178,12 +253,30 @@
 
       isobarLayerGroup.addTo(map);
     }
+
+    if (particleCanvas) {
+      particleCanvas.style.display = mode === 'wind' ? 'block' : 'none';
+      if (mode === 'wind') {
+        rebuildScreenWindField();
+        startParticles();
+      } else {
+        stopParticles();
+      }
+    }
+
     updateMapLegend(mode);
   }
 
   function initMap(getCurrentCoords) {
     if (initialized) {
-      setTimeout(() => map && map.invalidateSize(), 120);
+      setTimeout(() => {
+        if (!map) return;
+        map.invalidateSize();
+        if (activeMode === 'wind') {
+          resizeParticleCanvas();
+          rebuildScreenWindField();
+        }
+      }, 120);
       return;
     }
     initialized = true;
@@ -199,6 +292,7 @@
     }).addTo(map);
 
     isobarLayerGroup.addTo(map);
+    initParticleCanvas();
     setVisualMode('wind');
 
     // Marcadores de referência (Lagos e Estreito de Gibraltar)
@@ -238,9 +332,29 @@
 
     // Controlos de camadas visuais
     document.getElementById('btnModeWind').addEventListener('click', () => setVisualMode('wind'));
+    if (document.getElementById('btnModeWaves')) {
+      document.getElementById('btnModeWaves').addEventListener('click', () => setVisualMode('waves'));
+    }
     document.getElementById('btnModeRain').addEventListener('click', () => setVisualMode('rain'));
     document.getElementById('btnModeTemp').addEventListener('click', () => setVisualMode('temp'));
     document.getElementById('btnModeIsobars').addEventListener('click', () => setVisualMode('isobars'));
+
+    // Inspetor de ponto ao tocar/clicar no mapa
+    map.on('click', (e) => openPointInspector(e.latlng));
+
+    // Sincronizar partículas com pan/zoom do mapa
+    map.on('movestart zoomstart', () => {
+      particlesPaused = true;
+      if (particleCtx && particleCanvas) {
+        particleCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+      }
+    });
+    map.on('moveend zoomend resize', () => {
+      particlesPaused = false;
+      resizeParticleCanvas();
+      rebuildScreenWindField();
+      resetParticles();
+    });
 
     document.getElementById('btnCartaCenterGps').addEventListener('click', () => {
       const pos = getCurrentCoords();
@@ -346,7 +460,284 @@
     if (btn) btn.textContent = '▶';
   }
 
-  // --- Grelhas Open-Meteo (Vento Algarve + Isóbaras Atlântico/Ibéria) ---
+  // --- Motor de Partículas de Vento (Canvas 60fps estilo Windy) ---
+  function initParticleCanvas() {
+    const container = map.getContainer();
+    particleCanvas = document.createElement('canvas');
+    particleCanvas.className = 'windy-particle-canvas';
+    container.appendChild(particleCanvas);
+    particleCtx = particleCanvas.getContext('2d');
+    resizeParticleCanvas();
+  }
+
+  function resizeParticleCanvas() {
+    if (!particleCanvas || !map) return;
+    const size = map.getSize();
+    if (size.x > 0 && size.y > 0) {
+      particleCanvas.width = size.x;
+      particleCanvas.height = size.y;
+    }
+  }
+
+  function rebuildScreenWindField() {
+    if (!map || !particleCanvas || !currentFields.uGrid || !currentFields.vGrid) return;
+    const w = particleCanvas.width;
+    const h = particleCanvas.height;
+    if (w < 10 || h < 10) return;
+
+    const cols = 36;
+    const rows = 36;
+    const u = new Float32Array(cols * rows);
+    const v = new Float32Array(cols * rows);
+
+    for (let r = 0; r < rows; r++) {
+      const py = (r / (rows - 1)) * h;
+      for (let c = 0; c < cols; c++) {
+        const px = (c / (cols - 1)) * w;
+        const ll = map.containerPointToLatLng([px, py]);
+        const su = bilinearSample(currentFields.uGrid, ll.lat, ll.lng);
+        const sv = bilinearSample(currentFields.vGrid, ll.lat, ll.lng);
+        const idx = r * cols + c;
+        u[idx] = su != null ? su : NaN;
+        v[idx] = sv != null ? sv : NaN;
+      }
+    }
+    screenWindField = { cols, rows, u, v, w, h };
+  }
+
+  function sampleScreenWind(x, y) {
+    const f = screenWindField;
+    if (!f || x < 0 || x >= f.w || y < 0 || y >= f.h) return null;
+    const fx = (x / f.w) * (f.cols - 1);
+    const fy = (y / f.h) * (f.rows - 1);
+    const c0 = Math.min(f.cols - 2, Math.floor(fx));
+    const r0 = Math.min(f.rows - 2, Math.floor(fy));
+    const tx = fx - c0;
+    const ty = fy - r0;
+
+    const i00 = r0 * f.cols + c0;
+    const i01 = i00 + 1;
+    const i10 = i00 + f.cols;
+    const i11 = i10 + 1;
+
+    const u00 = f.u[i00], u01 = f.u[i01], u10 = f.u[i10], u11 = f.u[i11];
+    const v00 = f.v[i00], v01 = f.v[i01], v10 = f.v[i10], v11 = f.v[i11];
+    if (Number.isNaN(u00) || Number.isNaN(u01) || Number.isNaN(u10) || Number.isNaN(u11)) return null;
+
+    const u = (u00 * (1 - tx) + u01 * tx) * (1 - ty) + (u10 * (1 - tx) + u11 * tx) * ty;
+    const v = (v00 * (1 - tx) + v01 * tx) * (1 - ty) + (v10 * (1 - tx) + v11 * tx) * ty;
+    return [u, v];
+  }
+
+  function spawnParticle(p) {
+    const w = particleCanvas ? particleCanvas.width : 300;
+    const h = particleCanvas ? particleCanvas.height : 300;
+    p.x = Math.random() * w;
+    p.y = Math.random() * h;
+    p.age = 0;
+    p.maxAge = 45 + Math.floor(Math.random() * 55);
+  }
+
+  function resetParticles() {
+    if (!particleCanvas) return;
+    const area = particleCanvas.width * particleCanvas.height;
+    const targetCount = Math.min(900, Math.max(450, Math.round(area / 450)));
+    particles = Array.from({ length: targetCount }, () => {
+      const p = {};
+      spawnParticle(p);
+      p.age = Math.floor(Math.random() * p.maxAge);
+      return p;
+    });
+    if (particleCtx) {
+      particleCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+    }
+  }
+
+  function stepParticles() {
+    particleRaf = null;
+    if (activeMode !== 'wind' || !particleCtx || !particleCanvas) return;
+
+    if (!particlesPaused && screenWindField && particleCanvas.width > 0) {
+      const w = particleCanvas.width;
+      const h = particleCanvas.height;
+
+      // Rasto suave transparente (sem escurecer o mapa)
+      particleCtx.globalCompositeOperation = 'destination-in';
+      particleCtx.fillStyle = 'rgba(0, 0, 0, 0.88)';
+      particleCtx.fillRect(0, 0, w, h);
+      particleCtx.globalCompositeOperation = 'source-over';
+
+      particleCtx.lineWidth = 1.5;
+      particleCtx.lineCap = 'round';
+      particleCtx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
+
+      const speedScale = 0.065;
+      particleCtx.beginPath();
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        if (p.age >= p.maxAge) {
+          spawnParticle(p);
+          continue;
+        }
+        const vec = sampleScreenWind(p.x, p.y);
+        if (!vec) {
+          spawnParticle(p);
+          continue;
+        }
+        const nx = p.x + vec[0] * speedScale;
+        const ny = p.y - vec[1] * speedScale; // +v é Norte -> -y no canvas
+        particleCtx.moveTo(p.x, p.y);
+        particleCtx.lineTo(nx, ny);
+        p.x = nx;
+        p.y = ny;
+        p.age++;
+        if (nx < 0 || nx >= w || ny < 0 || ny >= h) {
+          spawnParticle(p);
+        }
+      }
+      particleCtx.stroke();
+    }
+
+    particleRaf = requestAnimationFrame(stepParticles);
+  }
+
+  function startParticles() {
+    if (!particleCanvas) return;
+    resizeParticleCanvas();
+    if (!particles.length) resetParticles();
+    if (!particleRaf) {
+      particleRaf = requestAnimationFrame(stepParticles);
+    }
+  }
+
+  function stopParticles() {
+    if (particleRaf) {
+      cancelAnimationFrame(particleRaf);
+      particleRaf = null;
+    }
+    if (particleCtx && particleCanvas) {
+      particleCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+    }
+  }
+
+  // --- Inspetor de Ponto ao Tocar no Mapa (Estilo Windy) ---
+  function closePointInspector() {
+    inspectLatLng = null;
+    if (inspectPopup && map) {
+      map.closePopup(inspectPopup);
+      inspectPopup = null;
+    }
+    if (inspectMarker && map) {
+      map.removeLayer(inspectMarker);
+      inspectMarker = null;
+    }
+  }
+
+  function buildInspectHtml(lat, lon) {
+    const u = bilinearSample(currentFields.uGrid, lat, lon);
+    const v = bilinearSample(currentFields.vGrid, lat, lon);
+    const temp = bilinearSample(currentFields.tempGrid, lat, lon);
+    const wave = bilinearSample(currentFields.waveGrid, lat, lon);
+
+    const latStr = `${Math.abs(lat).toFixed(2)}° ${lat >= 0 ? 'N' : 'S'}`;
+    const lonStr = `${Math.abs(lon).toFixed(2)}° ${lon >= 0 ? 'E' : 'O'}`;
+
+    let bodyHtml = '';
+    if (u == null || v == null) {
+      bodyHtml = `<div class="windy-inspect-row"><span class="windy-inspect-lbl">Área</span><span class="windy-inspect-val">Fora da grelha</span></div>`;
+    } else {
+      const spdKmh = Math.hypot(u, v);
+      const spdKts = spdKmh * 0.539957;
+      // Direção meteorológica de origem: u = -sin(dir)*spd, v = -cos(dir)*spd
+      const dirDeg = ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360;
+      const card = window.MeteoUtils ? window.MeteoUtils.windCardinalPT(dirDeg) : `${Math.round(dirDeg)}°`;
+      const arrowRot = (dirDeg + 180) % 360;
+      const wCol = windColor(spdKmh);
+
+      bodyHtml += `
+        <div class="windy-inspect-row">
+          <span class="windy-inspect-lbl">💨 Vento</span>
+          <span class="windy-inspect-val" style="color:${wCol};">${spdKts.toFixed(0)} kt <span style="color:#94a3b8;font-weight:600;">(${Math.round(spdKmh)} km/h)</span></span>
+        </div>
+        <div class="windy-inspect-row">
+          <span class="windy-inspect-lbl">🧭 Direção</span>
+          <span class="windy-inspect-val">
+            <span style="display:inline-block;transform:rotate(${arrowRot}deg);font-size:13px;">↑</span>
+            ${card} (${Math.round(dirDeg)}°)
+          </span>
+        </div>`;
+      if (temp != null) {
+        bodyHtml += `
+          <div class="windy-inspect-row">
+            <span class="windy-inspect-lbl">🌡️ Temp.</span>
+            <span class="windy-inspect-val">${temp.toFixed(1)} °C</span>
+          </div>`;
+      }
+      if (wave != null) {
+        bodyHtml += `
+          <div class="windy-inspect-row">
+            <span class="windy-inspect-lbl">🌊 Onda</span>
+            <span class="windy-inspect-val" style="color:${waveColor(wave)};">${wave.toFixed(1)} m</span>
+          </div>`;
+      }
+    }
+
+    return `<div class="windy-inspect-card">
+      <div class="windy-inspect-head">
+        <span class="windy-inspect-coords">📍 ${latStr}, ${lonStr}</span>
+        <button type="button" class="windy-inspect-close" id="btnCloseInspect" title="Fechar">✕</button>
+      </div>
+      ${bodyHtml}
+    </div>`;
+  }
+
+  function openPointInspector(latlng) {
+    if (!map) return;
+    inspectLatLng = latlng;
+    if (!inspectMarker) {
+      inspectMarker = L.circleMarker(latlng, {
+        radius: 6,
+        color: '#ffffff',
+        fillColor: '#38bdf8',
+        fillOpacity: 1,
+        weight: 2
+      }).addTo(map);
+    } else {
+      inspectMarker.setLatLng(latlng);
+    }
+
+    if (!inspectPopup) {
+      inspectPopup = L.popup({
+        closeButton: false,
+        className: 'windy-inspect-popup',
+        offset: [0, -6],
+        autoClose: false,
+        closeOnClick: false
+      });
+    }
+    inspectPopup.setLatLng(latlng).setContent(buildInspectHtml(latlng.lat, latlng.lng)).openOn(map);
+    setTimeout(() => {
+      const btn = document.getElementById('btnCloseInspect');
+      if (btn) btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        closePointInspector();
+      });
+    }, 0);
+  }
+
+  function refreshPointInspector() {
+    if (!inspectLatLng || !inspectPopup || !map) return;
+    inspectPopup.setContent(buildInspectHtml(inspectLatLng.lat, inspectLatLng.lng));
+    setTimeout(() => {
+      const btn = document.getElementById('btnCloseInspect');
+      if (btn) btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        closePointInspector();
+      });
+    }, 0);
+  }
+
+  // --- Grelhas Open-Meteo (Vento, Ondulação & Isóbaras) ---
   function buildGridCoords(latArr, lonArr) {
     const lats = [];
     const lons = [];
@@ -374,12 +765,22 @@
       `https://api.open-meteo.com/v1/forecast?latitude=${pCoords.lats.join(',')}&longitude=${pCoords.lons.join(',')}` +
       `&hourly=pressure_msl&forecast_days=3&timezone=auto`;
 
+    const marineUrl =
+      `https://marine-api.open-meteo.com/v1/marine?latitude=${wCoords.lats.join(',')}&longitude=${wCoords.lons.join(',')}` +
+      `&hourly=wave_height,wave_direction&forecast_days=3&timezone=auto`;
+
     try {
-      const [wRes, pRes] = await Promise.all([fetch(windUrl), fetch(pressUrl)]);
+      const [wRes, pRes, mRes] = await Promise.all([
+        fetch(windUrl),
+        fetch(pressUrl),
+        fetch(marineUrl).catch(() => null)
+      ]);
       const wData = await wRes.json();
       const pData = await pRes.json();
+      const mData = mRes && mRes.ok ? await mRes.json() : null;
       forecastWindArr = Array.isArray(wData) ? wData : [wData];
       forecastPressArr = Array.isArray(pData) ? pData : [pData];
+      forecastWaveArr = mData ? (Array.isArray(mData) ? mData : [mData]) : [];
       forecastTimes = (forecastWindArr[0] && forecastWindArr[0].hourly && forecastWindArr[0].hourly.time) || [];
 
       // Encontrar índice da hora atual
@@ -436,16 +837,20 @@
     if (lblEl) lblEl.textContent = formatForecastLabel(forecastTimes[idxHour], forecastOffset);
 
     windLayerGroup.clearLayers();
+    waveLayerGroup.clearLayers();
     tempLayerGroup.clearLayers();
     rainGridLayerGroup.clearLayers();
     isobarLayerGroup.clearLayers();
 
-    // 1. Grelhas regionais (Vento, Temperatura, Chuva) para idxHour
+    // 1. Grelhas regionais (Vento, Ondulação, Temperatura, Chuva) para idxHour
     const wRows = GRID_LATS.length;
     const wCols = GRID_LONS.length;
     const windGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const uGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const vGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
     const tempGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
     const rainGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const waveGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
 
     forecastWindArr.forEach((item, idx) => {
       const r = Math.floor(idx / wCols);
@@ -459,6 +864,11 @@
       const prec = hr.precipitation && hr.precipitation[idxHour];
 
       if (spd != null) windGrid[r][c] = spd;
+      if (spd != null && dir != null) {
+        const rad = (dir * Math.PI) / 180;
+        uGrid[r][c] = -Math.sin(rad) * spd;
+        vGrid[r][c] = -Math.cos(rad) * spd;
+      }
       if (temp != null) tempGrid[r][c] = temp;
       if (prec != null) rainGrid[r][c] = prec;
 
@@ -501,11 +911,54 @@
     const windField = buildColorFieldOverlay(windGrid, windRgb, () => 170);
     if (windField) windField.addTo(windLayerGroup);
 
+    // 1b. Ondulação (Open-Meteo Marine) para idxHour
+    forecastWaveArr.forEach((item, idx) => {
+      const r = Math.floor(idx / wCols);
+      const c = idx % wCols;
+      const lat = GRID_LATS[r];
+      const lon = GRID_LONS[c];
+      const hr = item.hourly || {};
+      const wh = hr.wave_height && hr.wave_height[idxHour];
+      const wd = hr.wave_direction && hr.wave_direction[idxHour];
+
+      if (wh != null) {
+        waveGrid[r][c] = wh;
+        const wCol = waveColor(wh);
+        const rot = wd != null ? (wd + 180) % 360 : 0;
+        const wIcon = L.divIcon({
+          className: 'wave-arrow-icon',
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
+          html: `<div style="display:flex;flex-direction:column;align-items:center;pointer-events:auto;">
+            <div style="transform:rotate(${rot}deg);">
+              <svg width="20" height="20" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.85));">
+                <path d="M12 2 L17 18 L12 14 L7 18 Z" fill="${wCol}" stroke="#ffffff" stroke-width="1.4"/>
+              </svg>
+            </div>
+            <span style="font-size:9.5px;font-weight:800;color:#fff;text-shadow:0 1px 3px #000;margin-top:-3px;">${wh.toFixed(1)}m</span>
+          </div>`
+        });
+        L.marker([lat, lon], { icon: wIcon })
+          .bindPopup(`🌊 Ondulação: <b>${wh.toFixed(1)} m</b>${wd != null ? `<br>Direção: ${Math.round(wd)}°` : ''}`)
+          .addTo(waveLayerGroup);
+      }
+    });
+
+    const waveField = buildColorFieldOverlay(waveGrid, waveRgb, () => 165);
+    if (waveField) waveField.addTo(waveLayerGroup);
+
     const tempField = buildColorFieldOverlay(tempGrid, tempRgb, () => 170);
     if (tempField) tempField.addTo(tempLayerGroup);
 
     const rainField = buildColorFieldOverlay(rainGrid, rainRgb, (mm) => (mm < 0.05 ? 0 : Math.min(200, Math.round(75 + mm * 35))));
     if (rainField) rainField.addTo(rainGridLayerGroup);
+
+    currentFields = { uGrid, vGrid, tempGrid, waveGrid };
+    if (activeMode === 'wind') {
+      rebuildScreenWindField();
+      startParticles();
+    }
+    refreshPointInspector();
 
     // 2. Isóbaras (Atlântico + Península Ibérica, intervalo 1 hPa) para idxHour
     const pRows = PRESS_LATS.length;
@@ -569,11 +1022,11 @@
       return;
     }
     if (!forecastTimes.length) return;
-    btn.textContent = '⏸';
+    btn.textContent = '⏸️';
     forecastTimer = setInterval(() => {
       const next = forecastOffset >= forecastMaxOffset ? 0 : forecastOffset + 1;
       renderForecastHour(next);
-    }, 900);
+    }, 800);
   }
 
   function stopForecastPlay() {
@@ -582,7 +1035,7 @@
       forecastTimer = null;
     }
     const btn = document.getElementById('btnForecastPlay');
-    if (btn) btn.textContent = '▶';
+    if (btn) btn.textContent = '▶️';
   }
 
   /**
