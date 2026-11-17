@@ -43,7 +43,7 @@
   let activeMode = 'wind'; // 'wind' | 'waves' | 'rain' | 'temp' | 'isobars'
 
   // Grelhas interpoláveis para a hora ativa
-  let currentFields = { uGrid: null, vGrid: null, tempGrid: null, waveGrid: null };
+  let currentFields = { uGrid: null, vGrid: null, tempGrid: null, waveGrid: null, waveUGrid: null, waveVGrid: null };
 
   // Partículas de Vento (Canvas 60fps estilo Windy)
   let particleCanvas = null;
@@ -633,52 +633,78 @@
     }
   }
 
-  function buildInspectHtml(lat, lon) {
-    const u = bilinearSample(currentFields.uGrid, lat, lon);
-    const v = bilinearSample(currentFields.vGrid, lat, lon);
-    const temp = bilinearSample(currentFields.tempGrid, lat, lon);
-    const wave = bilinearSample(currentFields.waveGrid, lat, lon);
+  function degToCardinalPT(deg) {
+    if (deg == null || !Number.isFinite(deg)) return '--';
+    const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'];
+    const norm = ((deg % 360) + 360) % 360;
+    return dirs[Math.round(norm / 22.5) % 16];
+  }
 
+  function buildInspectHtml(lat, lon) {
     const latStr = `${Math.abs(lat).toFixed(2)}° ${lat >= 0 ? 'N' : 'S'}`;
     const lonStr = `${Math.abs(lon).toFixed(2)}° ${lon >= 0 ? 'E' : 'O'}`;
 
     let bodyHtml = '';
-    if (u == null || v == null) {
-      bodyHtml = `<div class="windy-inspect-row"><span class="windy-inspect-lbl">Área</span><span class="windy-inspect-val">Fora da grelha</span></div>`;
+    if (!currentFields.uGrid || !currentFields.vGrid) {
+      bodyHtml = `<div class="windy-inspect-row"><span class="windy-inspect-lbl">⏳ Estado</span><span class="windy-inspect-val">A calcular...</span></div>`;
     } else {
-      const spdKmh = Math.hypot(u, v);
-      const spdKts = spdKmh * 0.539957;
-      // Direção meteorológica de origem: u = -sin(dir)*spd, v = -cos(dir)*spd
-      const dirDeg = ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360;
-      const card = window.MeteoUtils ? window.MeteoUtils.windCardinalPT(dirDeg) : `${Math.round(dirDeg)}°`;
-      const arrowRot = (dirDeg + 180) % 360;
-      const wCol = windColor(spdKmh);
+      const u = bilinearSample(currentFields.uGrid, lat, lon);
+      const v = bilinearSample(currentFields.vGrid, lat, lon);
+      const temp = bilinearSample(currentFields.tempGrid, lat, lon);
+      const wave = bilinearSample(currentFields.waveGrid, lat, lon);
+      const wu = bilinearSample(currentFields.waveUGrid, lat, lon);
+      const wv = bilinearSample(currentFields.waveVGrid, lat, lon);
 
-      bodyHtml += `
-        <div class="windy-inspect-row">
-          <span class="windy-inspect-lbl">💨 Vento</span>
-          <span class="windy-inspect-val" style="color:${wCol};">${spdKts.toFixed(0)} kt <span style="color:#94a3b8;font-weight:600;">(${Math.round(spdKmh)} km/h)</span></span>
-        </div>
-        <div class="windy-inspect-row">
-          <span class="windy-inspect-lbl">🧭 Direção</span>
-          <span class="windy-inspect-val">
-            <span style="display:inline-block;transform:rotate(${arrowRot}deg);font-size:13px;">↑</span>
-            ${card} (${Math.round(dirDeg)}°)
-          </span>
-        </div>`;
-      if (temp != null) {
+      if (u == null || v == null || !Number.isFinite(u) || !Number.isFinite(v)) {
+        bodyHtml = `<div class="windy-inspect-row"><span class="windy-inspect-lbl">Área</span><span class="windy-inspect-val">Fora da grelha</span></div>`;
+      } else {
+        const spdKmh = Math.hypot(u, v);
+        const spdKts = spdKmh * 0.539957;
+        // Direção meteorológica de origem (0°–360°): u = -sin(dir)*spd, v = -cos(dir)*spd
+        const rawDeg = (Math.atan2(-u, -v) * 180) / Math.PI;
+        const dirDeg = ((rawDeg % 360) + 360) % 360;
+        const dirRounded = Math.round(dirDeg) % 360;
+        const card = degToCardinalPT(dirDeg);
+        const arrowRot = (dirDeg + 180) % 360;
+        const wCol = windColor(spdKmh);
+
         bodyHtml += `
           <div class="windy-inspect-row">
-            <span class="windy-inspect-lbl">🌡️ Temp.</span>
-            <span class="windy-inspect-val">${temp.toFixed(1)} °C</span>
-          </div>`;
-      }
-      if (wave != null) {
-        bodyHtml += `
+            <span class="windy-inspect-lbl">💨 Vento</span>
+            <span class="windy-inspect-val" style="color:${wCol};">${spdKts.toFixed(0)} kt <span style="color:#94a3b8;font-weight:600;">(${Math.round(spdKmh)} km/h)</span></span>
+          </div>
           <div class="windy-inspect-row">
-            <span class="windy-inspect-lbl">🌊 Onda</span>
-            <span class="windy-inspect-val" style="color:${waveColor(wave)};">${wave.toFixed(1)} m</span>
+            <span class="windy-inspect-lbl">🧭 Direção</span>
+            <span class="windy-inspect-val">
+              <svg width="14" height="14" viewBox="0 0 24 24" style="transform:rotate(${arrowRot}deg);flex-shrink:0;">
+                <path d="M12 2 L18 20 L12 15 L6 20 Z" fill="${wCol}" stroke="#ffffff" stroke-width="1.5"/>
+              </svg>
+              ${card} (${dirRounded}°)
+            </span>
           </div>`;
+
+        if (temp != null && Number.isFinite(temp)) {
+          bodyHtml += `
+            <div class="windy-inspect-row">
+              <span class="windy-inspect-lbl">🌡️ Temp.</span>
+              <span class="windy-inspect-val">${temp.toFixed(1)} °C</span>
+            </div>`;
+        }
+
+        if (wave != null && Number.isFinite(wave)) {
+          let waveDirHtml = '';
+          if (wu != null && wv != null && Number.isFinite(wu) && Number.isFinite(wv) && (Math.abs(wu) > 1e-4 || Math.abs(wv) > 1e-4)) {
+            const wDeg = (((Math.atan2(-wu, -wv) * 180) / Math.PI) % 360 + 360) % 360;
+            const wCard = degToCardinalPT(wDeg);
+            const wRot = (wDeg + 180) % 360;
+            waveDirHtml = ` · <svg width="12" height="12" viewBox="0 0 24 24" style="transform:rotate(${wRot}deg);flex-shrink:0;"><path d="M12 2 L18 20 L12 15 L6 20 Z" fill="${waveColor(wave)}" stroke="#ffffff" stroke-width="1.5"/></svg> ${wCard} (${Math.round(wDeg) % 360}°)`;
+          }
+          bodyHtml += `
+            <div class="windy-inspect-row">
+              <span class="windy-inspect-lbl">🌊 Onda</span>
+              <span class="windy-inspect-val" style="color:${waveColor(wave)};">${wave.toFixed(1)} m${waveDirHtml}</span>
+            </div>`;
+        }
       }
     }
 
@@ -689,6 +715,18 @@
       </div>
       ${bodyHtml}
     </div>`;
+  }
+
+  function bindInspectClose() {
+    setTimeout(() => {
+      const btn = document.getElementById('btnCloseInspect');
+      if (btn) {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          closePointInspector();
+        };
+      }
+    }, 0);
   }
 
   function openPointInspector(latlng) {
@@ -716,25 +754,13 @@
       });
     }
     inspectPopup.setLatLng(latlng).setContent(buildInspectHtml(latlng.lat, latlng.lng)).openOn(map);
-    setTimeout(() => {
-      const btn = document.getElementById('btnCloseInspect');
-      if (btn) btn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        closePointInspector();
-      });
-    }, 0);
+    bindInspectClose();
   }
 
   function refreshPointInspector() {
     if (!inspectLatLng || !inspectPopup || !map) return;
     inspectPopup.setContent(buildInspectHtml(inspectLatLng.lat, inspectLatLng.lng));
-    setTimeout(() => {
-      const btn = document.getElementById('btnCloseInspect');
-      if (btn) btn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        closePointInspector();
-      });
-    }, 0);
+    bindInspectClose();
   }
 
   // --- Grelhas Open-Meteo (Vento, Ondulação & Isóbaras) ---
@@ -851,6 +877,8 @@
     const tempGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
     const rainGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
     const waveGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const waveUGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
+    const waveVGrid = Array.from({ length: wRows }, () => Array(wCols).fill(null));
 
     forecastWindArr.forEach((item, idx) => {
       const r = Math.floor(idx / wCols);
@@ -923,6 +951,12 @@
 
       if (wh != null) {
         waveGrid[r][c] = wh;
+        if (wd != null) {
+          const wRad = (wd * Math.PI) / 180;
+          const wMag = Math.max(0.1, wh);
+          waveUGrid[r][c] = -Math.sin(wRad) * wMag;
+          waveVGrid[r][c] = -Math.cos(wRad) * wMag;
+        }
         const wCol = waveColor(wh);
         const rot = wd != null ? (wd + 180) % 360 : 0;
         const wIcon = L.divIcon({
@@ -953,7 +987,7 @@
     const rainField = buildColorFieldOverlay(rainGrid, rainRgb, (mm) => (mm < 0.05 ? 0 : Math.min(200, Math.round(75 + mm * 35))));
     if (rainField) rainField.addTo(rainGridLayerGroup);
 
-    currentFields = { uGrid, vGrid, tempGrid, waveGrid };
+    currentFields = { uGrid, vGrid, tempGrid, waveGrid, waveUGrid, waveVGrid };
     if (activeMode === 'wind') {
       rebuildScreenWindField();
       startParticles();
