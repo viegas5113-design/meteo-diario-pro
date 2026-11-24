@@ -15,6 +15,19 @@
     return dirs[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
   }
 
+  function windLocalNamePT(deg) {
+    if (deg == null || isNaN(deg)) return 'Variável';
+    const g = ((deg % 360) + 360) % 360;
+    if (g >= 337.5 || g < 22.5) return 'Nortada';
+    if (g >= 22.5 && g < 67.5) return 'Nordeste';
+    if (g >= 67.5 && g < 112.5) return 'Levante';
+    if (g >= 112.5 && g < 157.5) return 'Sueste';
+    if (g >= 157.5 && g < 202.5) return 'Sul';
+    if (g >= 202.5 && g < 247.5) return 'Sudoeste';
+    if (g >= 247.5 && g < 292.5) return 'Poente';
+    return 'Noroeste (Nortada)';
+  }
+
   function pressureTrend(hourlyTimes, hourlyPressures, currentVal) {
     if (!Array.isArray(hourlyTimes) || !Array.isArray(hourlyPressures) || hourlyPressures.length < 4) {
       return { arrow: '➡️', label: 'Estável', cls: 'trend-flat', diff: 0 };
@@ -36,8 +49,10 @@
       return { arrow: '➡️', label: 'Estável', cls: 'trend-flat', diff: 0 };
     }
     const diff = cur - prev;
-    if (diff >= 0.8) return { arrow: '↗️', label: `A subir (+${diff.toFixed(1)})`, cls: 'trend-up', diff };
-    if (diff <= -0.8) return { arrow: '↘️', label: `A descer (${diff.toFixed(1)})`, cls: 'trend-down', diff };
+    if (diff <= -3.0) return { arrow: '⬇️', label: `A descer depressa (${diff.toFixed(1)} hPa)`, cls: 'trend-down-fast', diff };
+    if (diff <= -0.8) return { arrow: '↘️', label: `A descer (${diff.toFixed(1)} hPa)`, cls: 'trend-down', diff };
+    if (diff >= 2.5) return { arrow: '⬆️', label: `A subir depressa (+${diff.toFixed(1)} hPa)`, cls: 'trend-up-fast', diff };
+    if (diff >= 0.8) return { arrow: '↗️', label: `A subir (+${diff.toFixed(1)} hPa)`, cls: 'trend-up', diff };
     return { arrow: '➡️', label: 'Estável', cls: 'trend-flat', diff };
   }
 
@@ -229,6 +244,7 @@
   global.MeteoUtils = {
     kmhToKnots,
     windCardinalPT,
+    windLocalNamePT,
     pressureTrend,
     moonPhasePT,
     weatherCodePT,

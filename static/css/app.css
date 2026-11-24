@@ -886,3 +886,56 @@ html, body {
 .currents-table tr:last-child td {
   border-bottom: none;
 }
+
+/* Previsão 3h Manhã vs. Tarde */
+.hourly-periods-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.hourly-period-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hourly-period-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+/* Tabela Rápida de Marés Hoje (Lagos) */
+.tide-today-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+.tide-today-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.45);
+  font-size: 11.5px;
+}
+.tide-today-pill.high span {
+  color: var(--accent);
+  font-weight: 700;
+}
+.tide-today-pill.low span {
+  color: #fbbf24;
+  font-weight: 700;
+}
+.tide-today-pill small {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+/* Tendência Pressão Forte */
+.trend-down-fast { color: #f87171; font-weight: 800; }
+.trend-up-fast { color: #34d399; font-weight: 800; }

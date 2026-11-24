@@ -129,10 +129,14 @@
           <div class="metric-card" style="grid-column:span 2;">
             <div style="display:flex;justify-content:space-between;align-items:center;">
               <span class="metric-lbl">🌊 Maré Atual (Lagos)</span>
+              <span id="mTideCoef" class="metric-sub">Coef. --</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+              <span id="mTideState" class="metric-val">🌊 --</span>
               <span id="mTideHeight" class="metric-sub">-- m</span>
             </div>
-            <span id="mTideState" class="metric-val">🌊 --</span>
             <span id="mTideNext" class="metric-sub">Próxima: --</span>
+            <div id="mTideTodayTable" class="tide-today-grid"></div>
           </div>
         </div>
 
@@ -160,10 +164,10 @@
           </div>
         </div>
 
-        <!-- PREVISÃO HORA A HORA (3H EM 3H) -->
+        <!-- PREVISÃO HORA A HORA (3H EM 3H · MANHÃ VS TARDE) -->
         <div class="section-card" style="padding:12px;">
-          <span class="field-label" style="margin:0;">🕒 Previsão Próximas 24h (3h em 3h)</span>
-          <div id="hourlyStrip" class="hourly-strip">
+          <span class="field-label" style="margin:0;">🕒 Previsão 3 em 3h · Manhã vs. Tarde (Nortada / Vento)</span>
+          <div id="hourlyStrip" class="hourly-periods-wrap">
             <div class="loc-sub">A carregar previsão horária...</div>
           </div>
         </div>

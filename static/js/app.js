@@ -7,6 +7,7 @@
   const {
     kmhToKnots,
     windCardinalPT,
+    windLocalNamePT,
     pressureTrend,
     moonPhasePT,
     weatherCodePT,
@@ -19,6 +20,30 @@
   const LAGOS = { lat: 37.1028, lon: -8.6730, name: 'Lagos' };
   const GIBRALTAR = { lat: 36.01, lon: -5.60, name: 'Estreito de Gibraltar (Tarifa)' };
   const STORAGE_THEME = 'meteo_diario_theme_v1';
+  const STORAGE_METEO_CACHE = 'meteo_diario_offline_cache_v1';
+
+  function saveOfflineCache(snapshot) {
+    try {
+      localStorage.setItem(STORAGE_METEO_CACHE, JSON.stringify({
+        savedAt: new Date().toISOString(),
+        mode: state.mode,
+        lat: state.lat,
+        lon: state.lon,
+        locationName: state.locationName,
+        snapshot
+      }));
+    } catch (_) {}
+  }
+
+  function loadOfflineCache() {
+    try {
+      const raw = localStorage.getItem(STORAGE_METEO_CACHE);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.snapshot) return parsed;
+    } catch (_) {}
+    return null;
+  }
 
   const state = {
     mode: 'lagos', // 'gps' | 'lagos' | 'gibraltar'
@@ -218,19 +243,28 @@
         }
       }
       const precipProbNow = hr.precipitation_probability ? hr.precipitation_probability[curHourIdx] : 0;
+      const todayIso = new Date().toISOString().slice(0, 10);
       const hourly3h = [];
-      for (let step = 0; step < 8; step++) {
-        const idx = curHourIdx + step * 3;
-        if (idx >= times.length) break;
-        const wc = weatherCodePT(hr.weather_code ? hr.weather_code[idx] : null);
-        const wSpd = hr.wind_speed_10m ? hr.wind_speed_10m[idx] : null;
+      for (let i = 0; i < times.length; i++) {
+        const tStr = times[i];
+        if (!tStr || !tStr.startsWith(todayIso)) continue;
+        const dt = new Date(tStr);
+        const hNum = dt.getHours();
+        if (hNum % 3 !== 0) continue;
+        const wc = weatherCodePT(hr.weather_code ? hr.weather_code[i] : null);
+        const wSpd = hr.wind_speed_10m ? hr.wind_speed_10m[i] : null;
+        const wDeg = hr.wind_direction_10m ? Math.round(hr.wind_direction_10m[i]) : null;
         hourly3h.push({
-          timeStr: new Date(times[idx]).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
+          hourNum: hNum,
+          timeStr: `${String(hNum).padStart(2, '0')}:00`,
           icon: wc.icon,
-          temp: hr.temperature_2m && hr.temperature_2m[idx] != null ? Math.round(hr.temperature_2m[idx]) : '--',
-          rainProb: hr.precipitation_probability && hr.precipitation_probability[idx] != null ? Math.round(hr.precipitation_probability[idx]) : 0,
+          temp: hr.temperature_2m && hr.temperature_2m[i] != null ? Math.round(hr.temperature_2m[i]) : '--',
+          rainProb: hr.precipitation_probability && hr.precipitation_probability[i] != null ? Math.round(hr.precipitation_probability[i]) : 0,
           windKmh: wSpd != null ? Math.round(wSpd) : '--',
-          windKnots: kmhToKnots(wSpd)
+          windKnots: kmhToKnots(wSpd),
+          windDirDeg: wDeg,
+          windDirCard: wDeg != null ? windCardinalPT(wDeg) : '--',
+          windLocal: wDeg != null ? windLocalNamePT(wDeg) : 'Variável'
         });
       }
 
@@ -302,19 +336,32 @@
         curDirCard,
         currents24h,
         moonPhase: `${moon.icon} ${moon.name} (${moon.illum}%)`,
-        hourly3h
+        hourly3h,
+        savedAt: new Date().toISOString()
       };
 
       state.currentMeteo = snapshot;
-      renderWeatherUI(snapshot);
-      $('statusLine').textContent = 'Dados atualizados';
+      saveOfflineCache(snapshot);
+      renderWeatherUI(snapshot, false);
+      $('statusLine').textContent = '📡 Dados atualizados (cópia offline guardada)';
     } catch (err) {
-      $('statusLine').textContent = 'Modo offline / erro de rede';
-      showToast('Não foi possível atualizar. Verifique a ligação.');
+      const cached = loadOfflineCache();
+      if (cached && cached.snapshot) {
+        state.currentMeteo = cached.snapshot;
+        renderWeatherUI(cached.snapshot, true, cached.savedAt);
+        const dt = new Date(cached.savedAt);
+        const tsTxt = !isNaN(dt)
+          ? `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+          : '--';
+        $('statusLine').textContent = `📴 Offline · Cópia guardada (${tsTxt})`;
+      } else {
+        $('statusLine').textContent = 'Modo offline / sem cópia guardada';
+        showToast('Sem internet e sem previsão guardada offline.');
+      }
     }
   }
 
-  function renderTrafficLight(s) {
+  function renderTrafficLight(s, isOffline = false, savedAt = null) {
     const card = $('trafficCard');
     const badge = $('trafficBadge');
     const advice = $('trafficAdvice');
@@ -322,58 +369,75 @@
     if (!card || !badge || !advice) return;
 
     const wind = s.windKmh || 0;
+    const windKnots = s.windKnots != null && !isNaN(Number(s.windKnots)) ? Number(s.windKnots) : (wind * 0.539957);
     const gusts = s.gustsKmh || 0;
+    const gustsKnots = gusts * 0.539957;
     const wave = s.waveHeightNum || 0;
+    const period = s.wavePeriodS != null ? Number(s.wavePeriodS) : null;
     const rainProb = s.precipProbNow || 0;
     const code = s.weatherCode != null ? Number(s.weatherCode) : 0;
     const precip = s.precipitationMm || 0;
     const rain = s.rainMm || 0;
     const showers = s.showersMm || 0;
-    const cloudCover = s.cloudCover || 0;
 
     const isStorm = code >= 95 && code <= 99;
-    const isWmoRain = (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
-    const hasPrecip = precip > 0 || rain > 0 || showers > 0;
-    const isDrizzle = (code >= 51 && code <= 57) && !isStorm;
     const isHeavyRain = (code >= 63 && code <= 67) || code === 82 || precip >= 3.0;
-    const isRain = isWmoRain || hasPrecip;
+    const isRain = ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) || precip > 0 || rain > 0 || showers > 0;
     const isFog = code === 45 || code === 48;
-    const isOvercast = !isRain && !isStorm && (code === 3 || cloudCover >= 80);
+
+    const redAlerts = [];
+    const yellowAlerts = [];
+
+    if (windKnots > 15) redAlerts.push(`Vento > 15 nós (${windKnots.toFixed(1)} kt)`);
+    else if (windKnots >= 11) yellowAlerts.push(`Vento moderado (${windKnots.toFixed(1)} kt)`);
+
+    if (gustsKnots > 22) redAlerts.push(`Rajadas fortes (${gustsKnots.toFixed(0)} kt)`);
+    else if (gustsKnots >= 16) yellowAlerts.push(`Rajadas (${gustsKnots.toFixed(0)} kt)`);
+
+    if (wave > 1.5) redAlerts.push(`Ondulação > 1,5 m (${wave.toFixed(1)} m)`);
+    else if (wave >= 1.0) yellowAlerts.push(`Ondulação moderada (${wave.toFixed(1)} m)`);
+
+    if (period !== null) {
+      if (period < 5.5) redAlerts.push(`Período curto (${period} s — mar picado)`);
+      else if (period < 7.5) yellowAlerts.push(`Período curto (${period} s)`);
+    }
+
+    if (isStorm) redAlerts.push('Trovoada');
+    else if (isHeavyRain) redAlerts.push('Chuva forte');
+    else if (isRain) yellowAlerts.push('Chuva / aguaceiros');
+    else if (isFog) yellowAlerts.push('Nevoeiro');
+    else if (rainProb >= 50) yellowAlerts.push(`Possibilidade de chuva (${rainProb}%)`);
 
     let cls = 'status-green';
-    let badgeTxt = '🟢 Dia Favorável';
-    const windDesc = wind < 15 ? 'vento fraco' : wind < 28 ? 'vento moderado' : 'vento forte';
-    const seaDesc = wave === 0 ? 'mar sem dados' : wave < 1.2 ? 'mar calmo' : wave < 2.2 ? 'mar um pouco agitado' : 'mar agitado';
-
-    let skyDesc = 'sem chuva';
-    if (isStorm) skyDesc = 'trovoada e chuva';
-    else if (isHeavyRain) skyDesc = 'chuva forte';
-    else if (isDrizzle) skyDesc = 'chuvisco / chuva fraca';
-    else if (isRain) skyDesc = 'chuva / aguaceiros';
-    else if (isFog) skyDesc = 'nevoeiro';
-    else if (isOvercast) skyDesc = 'céu muito nublado / encoberto';
-    else if (rainProb >= 50) skyDesc = 'possibilidade de chuva';
-
+    let badgeTxt = '🟢 Seguro · Barco Pequeno';
     let msg = '';
-    if (isStorm || isHeavyRain || wind >= 40 || gusts >= 55 || wave >= 2.5) {
+
+    if (redAlerts.length > 0) {
       cls = 'status-red';
-      badgeTxt = '🔴 Muita Atenção';
-      msg = `Condições difíceis: ${skyDesc}, ${windDesc} (${wind} km/h) e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Evite sair para o mar e tenha cuidado ao ar livre.`;
-    } else if (isRain || isFog || wind >= 22 || gusts >= 35 || wave >= 1.3 || rainProb >= 50) {
+      badgeTxt = '🔴 Perigo · Barco Pequeno';
+      msg = `Desaconselhado sair em barco pequeno: ${redAlerts.join(' · ')}.`;
+      if (yellowAlerts.length > 0) msg += ` Atenção ainda a: ${yellowAlerts.join(', ')}.`;
+    } else if (yellowAlerts.length > 0) {
       cls = 'status-yellow';
-      badgeTxt = '🟡 Atenção Moderada';
-      msg = `Atenção: ${skyDesc}, ${windDesc} (${wind} km/h) e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Leve impermeável/casaco e confirme antes de navegar.`;
-    } else if (isOvercast) {
-      msg = `Céu muito nublado / encoberto, mas sem chuva, ${windDesc} (${wind} km/h) e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Bom para passear.`;
+      badgeTxt = '🟡 Atenção · Barco Pequeno';
+      msg = `Precaução para barco pequeno: ${yellowAlerts.join(' · ')}.`;
     } else {
-      msg = `Boas condições: ${skyDesc}, ${windDesc} (${wind} km/h) e ${seaDesc}${wave ? ` (${wave.toFixed(1)} m)` : ''}. Ótimo para passear, pescar ou navegar.`;
+      msg = `Condições favoráveis para barco pequeno: vento ${windKnots.toFixed(1)} kt (${s.windDirCard || '--'}), vaga ${wave ? `${wave.toFixed(1)} m` : '--'}${period ? ` / ${period} s` : ''}.`;
     }
 
     card.className = `traffic-card ${cls}`;
     badge.textContent = badgeTxt;
     advice.textContent = msg;
     if (updated) {
-      updated.textContent = `Atualizado: ${new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}`;
+      if (isOffline && savedAt) {
+        const dt = new Date(savedAt);
+        const ts = !isNaN(dt)
+          ? `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+          : '--';
+        updated.textContent = `📴 Offline (${ts})`;
+      } else {
+        updated.textContent = `Atualizado: ${new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}`;
+      }
     }
   }
 
@@ -384,18 +448,42 @@
       strip.innerHTML = '<div class="loc-sub">Previsão horária indisponível.</div>';
       return;
     }
-    strip.innerHTML = items.map((h) => `
-      <div class="hour-card">
-        <div class="hour-time">${h.timeStr}</div>
-        <div class="hour-ico">${h.icon}</div>
-        <div class="hour-temp">${h.temp}°C</div>
-        <div class="hour-meta">💧 ${h.rainProb}%</div>
-        <div class="hour-meta">💨 ${h.windKmh} km/h<br>${h.windKnots} nós</div>
-      </div>
-    `).join('');
+
+    const manha = items.filter((h) => (h.hourNum != null ? h.hourNum <= 12 : parseInt(h.timeStr, 10) <= 12));
+    const tarde = items.filter((h) => (h.hourNum != null ? h.hourNum >= 15 : parseInt(h.timeStr, 10) >= 15));
+
+    const renderGroup = (title, list) => {
+      if (!list.length) return '';
+      const cards = list.map((h) => {
+        const rot = h.windDirDeg != null ? (h.windDirDeg + 180) % 360 : 0;
+        const dirBadge = h.windDirDeg != null
+          ? `<span style="display:inline-block;transform:rotate(${rot}deg);font-weight:900;">↑</span> ${h.windDirCard}`
+          : '--';
+        return `
+          <div class="hour-card">
+            <div class="hour-time">${h.timeStr}</div>
+            <div class="hour-ico">${h.icon}</div>
+            <div class="hour-temp">${h.temp}°C</div>
+            <div class="hour-meta">💨 <strong>${h.windKnots} kt</strong> (${h.windKmh})</div>
+            <div class="hour-meta">${dirBadge} · <small>${h.windLocal || ''}</small></div>
+            <div class="hour-meta">💧 ${h.rainProb}%</div>
+          </div>
+        `;
+      }).join('');
+      return `
+        <div class="hourly-period-block">
+          <div class="hourly-period-title">${title}</div>
+          <div class="hourly-strip">${cards}</div>
+        </div>
+      `;
+    };
+
+    strip.innerHTML =
+      renderGroup('🌅 Manhã (00h – 12h)', manha) +
+      renderGroup('🌇 Tarde / Noite (15h – 21h)', tarde);
   }
 
-  function renderWeatherUI(s) {
+  function renderWeatherUI(s, isOffline = false, savedAt = null) {
     $('wIcon').textContent = s.weatherIcon;
     $('wTemp').textContent = s.tempC != null ? `${s.tempC}°C` : '--°C';
     $('wDesc').textContent = s.weatherText;
@@ -412,8 +500,16 @@
     pTrendEl.className = `metric-sub ${s.pressureTrendCls || ''}`;
 
     $('mHumidity').textContent = s.humidity != null ? `${s.humidity}%` : '--%';
-    const nowStr = new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
-    $('mUpdatedAt').textContent = `Atualizado: ${nowStr}`;
+    if (isOffline && savedAt) {
+      const dt = new Date(savedAt);
+      const ts = !isNaN(dt)
+        ? `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+        : '--';
+      $('mUpdatedAt').textContent = `📴 Offline: ${ts}`;
+    } else {
+      const nowStr = new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+      $('mUpdatedAt').textContent = `Atualizado: ${nowStr}`;
+    }
 
     $('mWaveHeight').textContent = s.waveHeightM != null ? `${s.waveHeightM} m` : '-- m';
     $('mWavePeriod').textContent = s.wavePeriodS != null ? `${s.wavePeriodS} s` : '-- s';
@@ -424,7 +520,7 @@
       $('mWaveArrow').style.transform = `rotate(${(s.waveDirDeg + 180) % 360}deg)`;
     }
 
-    renderTrafficLight(s);
+    renderTrafficLight(s, isOffline, savedAt);
     renderHourlyStrip(s.hourly3h);
     renderCurrentsCard(s);
 
@@ -767,9 +863,22 @@
 
     const dirLabel = cur.rising ? '⬆️ A Encher' : '⬇️ A Vazar';
     const hStr = `${cur.height.toFixed(1).replace('.', ',')} m`;
+    const todayTide = days[0];
     $('mTideState').textContent = dirLabel;
     $('mTideHeight').textContent = hStr;
     $('mTideNext').textContent = nextTxt;
+    if ($('mTideCoef') && todayTide) {
+      $('mTideCoef').textContent = `Coef. ${todayTide.coef} · ${todayTide.tipoMare}`;
+    }
+    if ($('mTideTodayTable') && todayTide) {
+      $('mTideTodayTable').innerHTML = todayTide.extremes.map((ex) => {
+        const hhmm = ex.time.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+        const hVal = `${ex.height.toFixed(1).replace('.', ',')} m`;
+        const cls = ex.isHigh ? 'high' : 'low';
+        const lbl = ex.isHigh ? '⬆️ Preia-Mar' : '⬇️ Baixa-Mar';
+        return `<div class="tide-today-pill ${cls}"><span>${lbl}</span><strong>${hhmm}</strong><small>${hVal}</small></div>`;
+      }).join('');
+    }
 
     $('tideTabNow').textContent = dirLabel;
     $('tideTabHeight').textContent = hStr;
@@ -815,13 +924,60 @@
     });
   }
 
-  // Service Worker
+  // Service Worker com atualização automática (skipWaiting + clients.claim)
+  let swRegistration = null;
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    let swReloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (swReloading) return;
+      swReloading = true;
+      window.location.reload();
+    });
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+      .then((reg) => {
+        swRegistration = reg;
+        reg.update().catch(() => {});
+      })
+      .catch(() => {});
   }
 
-  // Arranque: tenta GPS ou inicia com Lagos
+  // Atualização automática assim que houver internet (casa / telemóvel / PC)
+  window.addEventListener('online', () => {
+    if (swRegistration) swRegistration.update().catch(() => {});
+    fetchWeatherAndMarine();
+    showToast('📡 Ligação restabelecida — a atualizar previsão...');
+  });
+  window.addEventListener('offline', () => {
+    const cached = loadOfflineCache();
+    if (cached && cached.snapshot) {
+      renderWeatherUI(cached.snapshot, true, cached.savedAt);
+      $('statusLine').textContent = '📴 Sem rede — a mostrar cópia offline';
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && navigator.onLine) {
+      if (swRegistration) swRegistration.update().catch(() => {});
+      const cached = loadOfflineCache();
+      const lastTs = cached?.savedAt ? new Date(cached.savedAt).getTime() : 0;
+      if (!lastTs || Date.now() - lastTs > 30 * 60 * 1000) {
+        fetchWeatherAndMarine();
+      }
+    }
+  });
+  setInterval(() => {
+    if (navigator.onLine) {
+      if (swRegistration) swRegistration.update().catch(() => {});
+      fetchWeatherAndMarine();
+    }
+  }, 30 * 60 * 1000);
+
+  // Arranque: mostra cópia offline imediata se existir, depois tenta GPS/rede
   updateLocationUI();
   loadRecords();
+  const initialCache = loadOfflineCache();
+  if (initialCache && initialCache.snapshot) {
+    state.currentMeteo = initialCache.snapshot;
+    renderWeatherUI(initialCache.snapshot, !navigator.onLine, initialCache.savedAt);
+  }
   useGPS();
 })();
